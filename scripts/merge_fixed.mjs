@@ -134,14 +134,44 @@ if(cur.length&&cur.some(r=>r.speed>0||(r.heartRate!=null&&r.heartRate>0))&&td>0)
 
 console.log(`计圈: ${laps.length}`);
 
-const serialNumber = 0;
+// ===== 从第一段文件提取原始 manufacturer/product =====
+// 读取第一段文件的 file_id，继承设备信息，不写死品牌。
+// 若原始 manufacturer 未知或不存在，用 0xFF (development)。
+const firstFileId = segs[0]?.messages?.fileIdMesgs?.[0];
+const origManufacturer = (firstFileId?.manufacturer != null && firstFileId.manufacturer !== 0xFF) ? firstFileId.manufacturer : 0xFF;
+const origProduct = firstFileId?.product != null ? firstFileId.product : 0;
+const origSerialNumber = firstFileId?.serialNumber != null ? firstFileId.serialNumber : 0;
+const origProductName = firstFileId?.productName || '';
+
+console.log(`原始设备: manufacturer=${origManufacturer} product=${origProduct} serial=${origSerialNumber}${origProductName ? ` name=${origProductName}` : ''}`);
 
 // ===== 编码 =====
 const enc = new Encoder();
-enc.writeMesg({ mesgNum: Profile.MesgNum.FILE_ID, type: 'activity', manufacturer: 1, serialNumber, product: 1, timeCreated: fR.timestamp });
 
-// 设备信息（不标记为佳明设备，除非用户明确要求）
-try { enc.writeMesg({ mesgNum: Profile.MesgNum.DEVICE_INFO, timestamp: lR.timestamp, deviceIndex: 0, manufacturer: 1, serialNumber, product: 1, sourceType: 'local' }); } catch(e) { console.log('  device_info跳过:', e.message); }
+// fileId — 从原始数据继承 manufacturer/product，不写死品牌
+const fileIdMsg = {
+  mesgNum: Profile.MesgNum.FILE_ID,
+  type: 'activity',
+  manufacturer: origManufacturer,
+  serialNumber: origSerialNumber,
+  product: origProduct,
+  timeCreated: fR.timestamp,
+};
+if (origProductName) fileIdMsg.productName = origProductName;
+enc.writeMesg(fileIdMsg);
+
+// 设备信息 — 同 file_id
+try {
+  enc.writeMesg({
+    mesgNum: Profile.MesgNum.DEVICE_INFO,
+    timestamp: lR.timestamp,
+    deviceIndex: 0,
+    manufacturer: origManufacturer,
+    serialNumber: origSerialNumber,
+    product: origProduct,
+    sourceType: 'local',
+  });
+} catch(e) { console.log('  device_info跳过:', e.message); }
 
 // 文件创建者 + 设备设置 + 用户简档
 try { enc.writeMesg({ mesgNum: Profile.MesgNum.FILE_CREATOR, softwareVersion: 2238 }); } catch(e) { console.log('  fileCreator跳过:', e.message); }
