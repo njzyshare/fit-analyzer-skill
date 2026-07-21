@@ -77,9 +77,9 @@ function encodeFit(data) {
   const laps = data.laps || [];
   const session = data.session || {};
   const serialNumber = data.serialNumber || (3500000000 + Math.floor(Math.random() * 10000000));
-  const manufacturer = data.manufacturer || 1;
-  const product = data.product || 1;
-  const productName = data.productName || 'huawei';
+  const manufacturer = data.manufacturer != null ? data.manufacturer : 0xFF;  // 0xFF = development（无特定制造商）
+  const product = data.product != null ? data.product : 0;  // 0 = 非特定产品
+  const productName = data.productName || '';
 
   if (pts.length === 0) throw new Error('points array is empty');
 
@@ -97,18 +97,21 @@ function encodeFit(data) {
 
   const enc = new Encoder();
 
-  // file_id
-  enc.writeMesg({
+  // file_id — manufacturer: 0xFF（development，不冒充任何品牌）
+  // 华为/高驰等手表导出时，原始数据不包含 ANT+ manufacturer ID，
+  // 使用 0xFF 表示"无特定制造商"是最规范的做法。
+  const fileIdMsg = {
     mesgNum: Profile.MesgNum.FILE_ID,
     type: 'activity',
     manufacturer: manufacturer,
     serialNumber: serialNumber,
     product: product,
     timeCreated: startDate,
-    productName: productName,
-  });
+  };
+  if (productName) fileIdMsg.productName = productName;
+  enc.writeMesg(fileIdMsg);
 
-  // device_info
+  // device_info — 同 file_id
   try {
     enc.writeMesg({
       mesgNum: Profile.MesgNum.DEVICE_INFO,
