@@ -44,6 +44,9 @@ python scripts/huawei_convert.py 华为导出.json --format tcx
 # 华为数据 → 全部三种格式
 python scripts/huawei_convert.py 华为导出.json --format all
 
+# 华为数据 → 按运动类型批量转换全部记录
+python scripts/huawei_batch_convert.py 华为导出.json -o ./华为FIT
+
 # 合并分段活动（高驰用 Python 版）
 python scripts/fit_merge.py seg1.fit seg2.fit seg3.fit -o merged.fit
 
@@ -85,8 +88,9 @@ python scripts/fit_shift_time.py input.fit --delta-hours -12
 - **步频、卡路里、心率**：全部从华为原始数据提取，无漏缺。
 - **运动类型智能推断**：配速+步频+GPS 综合判断，骑行/游泳不受配速规则影响。
 - **manufacturer/product 遵从原始数据**：不默认写任何品牌。默认 `0xFF (development)`。仅用户要求修复佳明爬升时才注入佳明设备信息。
-
-## 技术原理
+- **批量转换**：`huawei_batch_convert.py` 一次处理华为 JSON 中全部运动记录，按类型分目录输出，文件名含年月日+时间
+  
+## 脚本清单
 
 ### merge_fixed.mjs（佳明主力方案）
 
@@ -119,7 +123,8 @@ enc.write_mesg({'mesg_num': 23, 'manufacturer': 'garmin',
 ├── fit_encode.mjs        # FIT 编码器（供 huawei_convert.py 调用）
 ├── package.json          # Node.js 依赖
 ├── scripts/
-│   ├── huawei_convert.py   # 华为JSON→FIT/GPX/TCX（主力）
+│   ├── huawei_convert.py      # 华为JSON→FIT/GPX/TCX（主力）
+│   ├── huawei_batch_convert.py # 华为JSON→按类型批量FIT（新）
 │   ├── merge_fixed.mjs     # 佳明兼容合并（主力）
 │   ├── fit_merge.py        # 字节级拼接
 │   ├── fit_healthcheck.py  # 语义体检
