@@ -4,6 +4,7 @@
 
 ## 能力
 
+- **FIT 预览** — FIT 文件一键生成交互式 HTML 预览（轨迹地图 + Session 摘要 + 全字段统计 + 计圈详情）
 - **合并分段活动** — 把一次连续运动被存成的多个 .fit 合并回单个活动
 - **华为手表 → FIT/GPX/TCX** — 华为 JSON 导出直接转换为标准运动文件，默认输出 FIT（完整数据、轨迹正确、规范合规）
 - **FIT 体检** — 上传前语义验证，抓出平台可能拒收的隐藏问题
@@ -49,6 +50,9 @@ node scripts/merge_fixed.mjs
 # 体检验证
 python scripts/fit_healthcheck.py merged.fit
 
+# FIT 预览（一键生成交互式 HTML）
+python scripts/fit_preview.py input.fit
+
 # TCX 兜底导出
 python scripts/fit_to_tcx.py merged.fit -o merged.tcx
 
@@ -65,6 +69,7 @@ python scripts/fit_shift_time.py input.fit --delta-hours -12
 | TCX（huawei_convert.py 输出） | ✅ | ✅ | ✅ |
 | fit_merge.py（字节级拼接） | ✅ 直接可用 | ❌ 被拒 | 应可 |
 | merge_fixed.mjs（Encoder） | ✅ 也可用 | ✅ 实测通过 | 应可 |
+| fit_preview.py（预览器） | ✅ 浏览器打开 | ✅ 浏览器打开 | ✅ 浏览器打开 |
 
 ## 华为数据转换说明
 
@@ -115,6 +120,7 @@ enc.write_mesg({'mesg_num': 23, 'manufacturer': 'garmin',
 │   ├── merge_fixed.mjs     # 佳明兼容合并（主力）
 │   ├── fit_merge.py        # 字节级拼接
 │   ├── fit_healthcheck.py  # 语义体检
+│   ├── fit_preview.py      # FIT→交互式HTML预览（新）
 │   ├── fit_to_tcx.py       # FIT→TCX
 │   ├── fit_shift_time.py   # 时间戳平移
 │   └── fit_rebuild_sdk.py  # 官方 SDK 重建
