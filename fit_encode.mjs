@@ -6,11 +6,6 @@
  *   node fit_encode.mjs < input_data.json > output.fit
  *   cat data.json | node fit_encode.mjs > activity.fit
  *
- * 支持等强配速（Effort Pace）:
- *   传入 data.enableEffortPace=true 时，
- *   自动用 V2 融合方案（Minetti+心率修正）计算并写入 developer field，
- *   高驰 APP 可识别显示。
- *
  * JSON 输入格式:
  * {
  *   "points": [                         // record 数据点（必选）
@@ -34,7 +29,6 @@
  *     "maxHeartRate": ...,
  *     "sport": "running",
  *   },
- *   "enableEffortPace": true,           // 是否写入等强配速（可选，默认 false）
  *   "manufacturer": ...,
  *   "product": ...,
  * }
@@ -83,23 +77,6 @@ function encodeFit(data) {
   }
 
   const enc = new Encoder();
-  // ===== 等强配速（Effort Pace）V2 融合方案 =====
-  const enableEffortPace = data.enableEffortPace === true;
-  if (enableEffortPace) {
-    enc.addDeveloperField('effort_pace', {
-      developerDataIndex: 0,
-      manufacturerId: 294,
-      applicationId: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 71],
-    }, {
-      developerDataIndex: 0,
-      fieldDefinitionNumber: 16,
-      fitBaseTypeId: 136,
-      fieldName: 'Effort Pace',
-      units: 'm/s',
-    });
-    enc.writeMesg({ mesgNum: Profile.MesgNum.DEVELOPER_DATA_ID, developerDataIndex: 0, manufacturerId: 294, applicationId: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,71] });
-    enc.writeMesg({ mesgNum: Profile.MesgNum.FIELD_DESCRIPTION, developerDataIndex: 0, fieldDefinitionNumber: 16, fitBaseTypeId: 136, fieldName: 'Effort Pace', units: 'm/s' });
-  }
 
   // file_id — manufacturer: 0xFF（development，不冒充任何品牌）
   // 华为/高驰等手表导出时，原始数据不包含 ANT+ manufacturer ID，
@@ -180,9 +157,7 @@ function encodeFit(data) {
     eventGroup: 0,
   });
 
-  // records — 固定字段布局（含等强配速）
-  const sessAvgHr = session.avgHeartRate;  // 用于心率修正
-  let prevAlt = null;
+    // records — 固定字段布局
   for (const p of pts) {
     const rec = {
       mesgNum: Profile.MesgNum.RECORD,
@@ -196,51 +171,6 @@ function encodeFit(data) {
       enhancedSpeed: p.speed != null ? p.speed : 0,
       enhancedAltitude: p.altitude != null ? Math.round(p.altitude) : FIT_INVALID_U16,
     };
-
-    // V2 等强配速（Effort Pace）
-    if (enableEffortPace) {
-      const spd = p.speed || 0;
-      const alt = p.altitude;
-      let gradePct = 0;
-      if (spd > 0 && alt != null && prevAlt != null && p.distance != null) {
-        const altDelta = alt - prevAlt;       // 海拔变化（米）
-        const distDelta = p.distance - (pts[0].distance || 0); // 水平距离（米）
-        if (distDelta > 1) {
-          gradePct = (altDelta / distDelta) * 100;
-        }
-      }
-      prevAlt = alt;
-
-      // V2 坡度因子
-      let factor;
-      if (gradePct >= 0) {
-        if (gradePct <= 10) factor = 1.0 + gradePct * 0.025;
-        else factor = 1.25 + (gradePct - 10) * 0.03;
-      } else {
-        const absG = Math.abs(gradePct);
-        if (absG <= 10) factor = 1.0 - absG * 0.015;
-        else factor = 0.85 + (absG - 10) * 0.025;
-      }
-
-      // 基础等强配速（用 speed 乘以因子 = 等强速度）
-      let effortSpeed = spd * factor;
-
-      // 心率修正（保留你的方案）
-      if (sessAvgHr && p.hr && sessAvgHr > 0) {
-        const hrRatio = p.hr / sessAvgHr;
-        if (hrRatio > 1.05) {
-          effortSpeed *= (1.0 - 0.3 * (hrRatio - 1.0));
-        } else if (hrRatio < 0.95) {
-          effortSpeed *= (1.0 + 0.2 * (1.0 - hrRatio));
-        }
-      }
-
-      // 下限保护
-      effortSpeed = Math.max(effortSpeed, spd * 0.7);
-
-      rec.developerFields = { effort_pace: Math.round(effortSpeed * 1000) / 1000 };
-    }
-
     enc.writeMesg(rec);
   }
 
@@ -331,10 +261,6 @@ function encodeFit(data) {
     totalTrainingEffect: session.trainingEffect || undefined,
     totalAnaerobicTrainingEffect: session.anaerobicTrainingEffect || undefined,
   };
-  // Session 级别 Effort Pace（平均等强配速）
-  if (enableEffortPace) {
-    sessMsg.developerFields = { effort_pace: Math.round(avgSpeed * 1000) / 1000 };
-  }
   enc.writeMesg(sessMsg);
 
   // activity
