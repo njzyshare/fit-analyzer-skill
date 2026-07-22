@@ -1,7 +1,7 @@
 ---
 name: 运动记录fit分析器
 description: "通用运动 FIT 记录分析/修改工具集。覆盖佳明/高驰/颂拓/华为等品牌 .fit 文件。已落地：合并分段活动、FIT 体检、官方 SDK 重建、华为JSON→FIT/GPX/TCX、时间戳平移、FIT 预览。支持 protocol=2 核心消息+设备信息注入。触发词：'合并fit'、'分析fit'、'体检fit'、'导出tcx'、'改时间'、'华为转换'、'预览fit'。"
-version: 3.2.0
+version: 3.3.0
 agent_created: true
 ---
 
@@ -147,6 +147,43 @@ python scripts/fit_preview.py input.fit -o my_activity.html
 - sportType=117（纯心率记录，无GPS）会输出 `_HRonly.tcx`
 - 华为气压计海拔可能有整体偏移（实测 -34m），脚本自动检测并修正
 - `partTimeMap:{1.0:335.0}` 为非标准 JSON 格式，脚本自动修补
+- **华为数据转 FIT 的爬升偏高约 2 倍**：华为气压计相邻采样点存在 0.5~1m 的随机噪声，FIT 中 altitude 字段按逐点累加方式计算总爬升时会将噪声也计入。华为健康 APP 有自研降噪算法所以显示正常（如 80m），但导出的 FIT 中 altitude 是原始值，高驰/佳明等平台读到时同样会算出偏高值（如 162m）。这不是编码错误，是华为气压计原始数据精度问题。详见 SKILL.md 经验沉淀章节。
+
+## skill 经验沉淀（2026-07-22）
+
+### 1. altitude 字段的 FIT 缩放规则
+- `altitude` 字段类型是 **sint16，单位 0.5m**。写入时必须 `Math.round(米值 * 2)`，不然 decode 后值减半。
+  - 例：10m 海拔 → 写入 `20`，decode 后读取为 `20 * 0.5 = 10m`。
+  - `enhancedAltitude` 字段类型 **uint16，单位 5m，偏移 500m**。但 @garmin/fitsdk 的 Encoder 自动处理缩放，直接写米值即可。
+- `altitude` 的 invalid 值是 `0x8000` (32768 = sint16 最小负值)，不是 `65535`。
+- **高驰 APP 读取 `altitude` 字段计算爬升，不认 `enhancedAltitude`**。如果只写了 `enhancedAltitude` 没写 `altitude`，爬升显示为 0。
+- Session/Lap 的 `totalAscent/totalDescent` 写入后高驰会直接使用，不会自行计算。
+
+### 2. 华为海拔数据噪声与爬升翻倍
+- 华为气压计海拔有 0.5~1m 级别噪声（1239 个采样点中 293 次正差、288 次负差）。
+- 逐点累加（每个正差都计为爬升）会把噪声也计入，导致爬升翻倍。
+  - 环东半马实际爬升约 80m → FIT 内 altitude 逐点累出 162m（约 2 倍）。
+  - 高驰使用 altitude 字段同样会算出 ~162m，因为它也做逐点累加。
+- **华为原始 JSON 中有 `mTotalDescent: 944`，但这个值是华为自身的处理，不代表实际。**
+- **结论：华为数据源的爬升放大是华为气压计精度限制导致的，不是编码错误。** 要让爬升准确，要么（1）在写入 altitude 前做去噪（不推荐，会篡改原始数据），要么（2）告诉用户华为数据爬升会偏高 ~2 倍。
+- 跨平台爬升显示差异：华为健康 APP 显示 80m（有自己的降噪算法）→ FIT 显示 162m（逐点累加）→ 都是同一组原始数据不同处理方式。
+
+### 3. 去噪不可取
+- 用户明确要求**不篡改原始数据**。不要自作聪明做去噪、过滤、缩放修改。
+- 华为原始海拔数据是多少就写多少，误差是华为自身精度问题，不是工具的问题。
+
+### 4. 计圈距离：Haversine 替代线性插值
+- 之前距离按时间比例分配（`total_dist * frac`），导致每圈偏小 3%（965m 而非 1000m）。
+- 改用 **Haversine 逐点累加** 后，计圈精度提升到 998~1002m（偏差 <0.3%）。
+- 在 `huawei_convert.py` 的 `export_fit` 函数中实现，同时重写了计圈逻辑为「按 1000m 距离触发切圈」。
+
+### 5. FIT 预览页面 tab 不显示的已知 bug（已修复）
+- `fit_preview.py` 的 HTML 模板中 panel 的 id 是 `ps`/`pf`/`pl`（缩写），但 JS 切换时拼的是 `p`+`data-tab` = `psession`/`pfields`/`plaps`。
+- **这是 skill 模板本身的 bug**，与修改者无关。修复：统一使用长 ID `psession`/`pfields`/`plaps`。
+
+### 6. 消息类型完整保留
+- 使用 `@garmin/fitsdk` 的 `Encoder` 重建 FIT 时会丢弃私有消息类型（如 `gps_metadata`, `timestamp_correlation`），但标准消息（file_id, device_info, sport, event, record, lap, session, activity 等）全部保留。
+- 如果接收平台做严格的消息类型校验（如某些 COROS 版本），需要确保 `laps`、`splits`、`event` 等消息都存在。
 
 ## 工作流
 

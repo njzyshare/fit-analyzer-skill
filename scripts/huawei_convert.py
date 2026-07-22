@@ -25,6 +25,7 @@
 
 import json
 import math
+from math import radians, sin, cos, atan2, sqrt
 import os
 import re
 import subprocess
@@ -588,18 +589,23 @@ def export_fit(single_obj, gps_points, hr_points, cadence_points, alti_points,
                 alt = ap['alt']
                 break
 
-        # 距离（按时间比例分配）
-        frac = (gp['time'] - gps_sorted[0]['time']) / max(1, gps_sorted[-1]['time'] - gps_sorted[0]['time'])
-        distance = total_dist * frac
+        # 距离（Haversine 逐点累加）
+        if i == 0:
+            distance = 0.0
+        else:
+            dlat = radians(lat - points[-1]['lat'])
+            dlon = radians(lon - points[-1]['lon'])
+            a = sin(dlat / 2) ** 2 + cos(radians(points[-1]['lat'])) * cos(radians(lat)) * sin(dlon / 2) ** 2
+            c = 2 * atan2(sqrt(a), sqrt(1 - a))
+            distance = points[-1]['distance'] + max(6371000 * c, 0)
 
         # 速度
         speed = None
         if i > 0:
             dt = (gp['time'] - gps_sorted[i - 1]['time']) / 1000
-            dd = distance - (gps_sorted[i - 1].get('_dist', 0))
+            dd = distance - points[-1]['distance']
             if dt > 0 and dd >= 0:
                 speed = dd / dt
-        gps_sorted[i]['_dist'] = distance
 
         pt = {
             'lat': lat,
@@ -611,45 +617,71 @@ def export_fit(single_obj, gps_points, hr_points, cadence_points, alti_points,
             pt['hr'] = hr
         if cad:
             pt['cadence'] = cad
-        if alt is not None and alt != 0:
+        if alt is not None:
             pt['altitude'] = round(alt, 1)
         if speed is not None:
             pt['speed'] = round(speed, 4)
         points.append(pt)
 
-    # 计圈：每 1km
-    if total_dist >= 1000:
-        n_laps = max(1, math.ceil(total_dist / 1000))
-        laps = []
-        for li in range(n_laps):
-            start_i = li * len(points) // n_laps
-            end_i = (li + 1) * len(points) // n_laps - 1
-            if end_i >= len(points):
-                end_i = len(points) - 1
-            lap_pts = points[start_i:end_i + 1]
-            if not lap_pts:
-                continue
-            lap_dist = lap_pts[-1]['distance'] - lap_pts[0]['distance']
-            lap_time = (lap_pts[-1]['ts'] - lap_pts[0]['ts']) / 1000
-            lap_hrs = [p.get('hr') for p in lap_pts if p.get('hr')]
-            lap_cads = [p.get('cadence') for p in lap_pts if p.get('cadence')]
-            lap_speeds = [p.get('speed') for p in lap_pts if p.get('speed')]
-            laps.append({
-                'start_idx': start_i,
-                'end_idx': end_i,
-                'totalDistance': round(lap_dist, 1),
-                'totalElapsedTime': round(lap_time, 1),
-                'avgHeartRate': round(sum(lap_hrs) / len(lap_hrs)) if lap_hrs else None,
-                'maxHeartRate': max(lap_hrs) if lap_hrs else None,
-                'avgCadence': round(sum(lap_cads) / len(lap_cads)) if lap_cads else None,
-                'avgSpeed': round(sum(lap_speeds) / len(lap_speeds), 4) if lap_speeds else None,
-                'maxSpeed': round(max(lap_speeds), 4) if lap_speeds else None,
-                'totalCalories': round((huawei_calories or total_dist * 0.074) * lap_dist / total_dist) if total_dist > 0 else 0,
-                'startLat': points[start_i]['lat'],
-                'startLon': points[start_i]['lon'],
-                'endLat': points[end_i]['lat'],
-                'endLon': points[end_i]['lon'],
-            })
+    haversine_dist = points[-1]['distance'] if points else total_dist
+    
+    # 计圈：每 1km 距离触发切圈
+    laps = []
+    if haversine_dist >= 1000:
+        LAP_DIST = 1000.0
+        lap_start_i = 0
+        next_lap_dist = LAP_DIST
+        for li in range(len(points)):
+            if points[li]['distance'] >= next_lap_dist or li == len(points) - 1:
+                lap_pts = points[lap_start_i:li+1]
+                if len(lap_pts) <= 2:
+                    continue
+                lap_dist = lap_pts[-1]['distance'] - lap_pts[0]['distance']
+                lap_time = (lap_pts[-1]['ts'] - lap_pts[0]['ts']) / 1000
+                if lap_dist <= 0:
+                    continue
+                lap_ascent = 0
+                lap_descent = 0
+                for ai in range(1, len(lap_pts)):
+                    pa = lap_pts[ai-1].get('altitude')
+                    ca = lap_pts[ai].get('altitude')
+                    if pa is not None and ca is not None:
+                        diff = ca - pa
+                        if diff > 0: lap_ascent += diff
+                        elif diff < 0: lap_descent += abs(diff)
+                # 计算该圈爬升/下降
+                lap_ascent = 0
+                lap_descent = 0
+                for ai in range(1, len(lap_pts)):
+                    pa = lap_pts[ai-1].get('altitude')
+                    ca = lap_pts[ai].get('altitude')
+                    if pa is not None and ca is not None:
+                        diff = ca - pa
+                        if diff > 0: lap_ascent += diff
+                        elif diff < 0: lap_descent += abs(diff)
+                lap_hrs = [p.get('hr') for p in lap_pts if p.get('hr')]
+                lap_cads = [p.get('cadence') for p in lap_pts if p.get('cadence')]
+                lap_speeds = [p.get('speed') for p in lap_pts if p.get('speed')]
+                laps.append({
+                    'start_idx': lap_start_i,
+                    'end_idx': li,
+                    'totalDistance': round(lap_dist, 1),
+                    'totalElapsedTime': round(lap_time, 1),
+                    'totalAscent': round(lap_ascent, 1),
+                    'totalDescent': round(lap_descent, 1),
+                    'avgHeartRate': round(sum(lap_hrs) / len(lap_hrs)) if lap_hrs else None,
+                    'maxHeartRate': max(lap_hrs) if lap_hrs else None,
+                    'avgCadence': round(sum(lap_cads) / len(lap_cads)) if lap_cads else None,
+                    'avgSpeed': round(sum(lap_speeds) / len(lap_speeds), 4) if lap_speeds else None,
+                    'maxSpeed': round(max(lap_speeds), 4) if lap_speeds else None,
+                    'totalCalories': round((huawei_calories or haversine_dist * 0.074) * lap_dist / haversine_dist) if haversine_dist > 0 else 0,
+                    'startLat': points[lap_start_i]['lat'],
+                    'startLon': points[lap_start_i]['lon'],
+                    'endLat': points[li]['lat'],
+                    'endLon': points[li]['lon'],
+                })
+                lap_start_i = li
+                next_lap_dist = len(laps) * 1000 + 1000
     else:
         laps = []
 
@@ -658,8 +690,19 @@ def export_fit(single_obj, gps_points, hr_points, cadence_points, alti_points,
     max_hr = max(p['hr'] for p in points if p.get('hr')) if any(p.get('hr') for p in points) else None
     avg_cad = round(sum(p.get('cadence', 0) for p in points if p.get('cadence')) / max(1, sum(1 for p in points if p.get('cadence')))) if any(p.get('cadence') for p in points) else None
     max_cad = max(p['cadence'] for p in points if p.get('cadence')) if any(p.get('cadence') for p in points) else None
-    avg_spd = total_dist / max(1, total_time_ms / 1000) if total_time_ms > 0 else 0
+    avg_spd = haversine_dist / max(1, total_time_ms / 1000) if total_time_ms > 0 else 0
     max_spd = max(p.get('speed', 0) for p in points if p.get('speed')) if any(p.get('speed') for p in points) else None
+    
+    # 计算总爬升/下降（逐点累加，华为原始数据，不去噪）
+    total_ascent = 0
+    total_descent = 0
+    for pi in range(1, len(points)):
+        pa = points[pi-1].get('altitude')
+        ca = points[pi].get('altitude')
+        if pa is not None and ca is not None:
+            diff = ca - pa
+            if diff > 0: total_ascent += diff
+            elif diff < 0: total_descent += abs(diff)
 
     fit_data = {
         'points': points,
@@ -667,8 +710,10 @@ def export_fit(single_obj, gps_points, hr_points, cadence_points, alti_points,
         'session': {
             'startTime': start_time,
             'totalTime': total_time_ms,
-            'totalDistance': total_dist,
-            'totalCalories': round((huawei_calories or 0) / 1000) if huawei_calories else round(total_dist * 0.074),
+            'totalDistance': round(haversine_dist, 1),
+            'totalAscent': round(total_ascent, 1),
+            'totalDescent': round(total_descent, 1),
+            'totalCalories': round((huawei_calories or 0) / 1000) if huawei_calories else round(haversine_dist * 0.074),
             'avgHeartRate': avg_hr,
             'maxHeartRate': max_hr,
             'avgCadence': avg_cad,

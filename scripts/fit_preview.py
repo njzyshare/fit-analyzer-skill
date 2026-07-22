@@ -118,6 +118,8 @@ def extract_fit_data(fit_path):
         'trigger': session.get('trigger', ''),
         'total_training_effect': sf('total_training_effect') if session.get('total_training_effect') else None,
         'total_anaerobic_training_effect': sf('total_anaerobic_training_effect') if session.get('total_anaerobic_training_effect') else None,
+        'total_ascent': int(sf('total_ascent')),
+        'total_descent': int(sf('total_descent')),
         'avg_speed': round(sf('avg_speed'), 3),
         'max_speed': round(sf('max_speed'), 3),
         'total_haversine_km': round(total_haversine / 1000, 2),
@@ -138,6 +140,8 @@ def extract_fit_data(fit_path):
             'max_hr': int(float(lap['max_heart_rate'])) if lap.get('max_heart_rate') else None,
             'avg_cad': int(float(lap['avg_running_cadence'])) if lap.get('avg_running_cadence') else None,
             'calories': int(float(lap['total_calories'])) if lap.get('total_calories') else 0,
+            'ascent': int(float(lap['total_ascent'])) if lap.get('total_ascent') else None,
+            'descent': int(float(lap['total_descent'])) if lap.get('total_descent') else None,
         })
 
     # 轨迹采样（约 500 点）
@@ -243,9 +247,9 @@ body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgro
 <div class="t" data-tab="fields">全字段</div>
 <div class="t" data-tab="laps">计圈</div>
 </div>
-<div class="tp ac" id="ps"></div>
-<div class="tp" id="pf"></div>
-<div class="tp" id="pl"></div>
+<div class="tp ac" id="psession"></div>
+<div class="tp" id="pfields"></div>
+<div class="tp" id="plaps"></div>
 </div>
 </div>
 </div>
@@ -261,6 +265,7 @@ var sum=[
   ['心率',s.avg_heart_rate+' / '+s.max_heart_rate,'pk'],
   ['步频',(s.avg_running_cadence||'-')+(s.max_running_cadence?' / '+s.max_running_cadence:'')+' spm','pp'],
   ['卡路里',s.total_calories+' kcal',''],
+  ['爬升',(s.total_ascent||0)+' m / '+(s.total_descent||0)+' m',''],
   ['效果',(s.total_training_effect||'-')+' / '+(s.total_anaerobic_training_effect||'-'),'']
 ];
 sum.push(['record',d.record_count+' 条','']);
@@ -286,13 +291,13 @@ var sf=[
   ['有氧效果',s.total_training_effect||'-'],
   ['无氧效果',s.total_anaerobic_training_effect||'-'],
 ];
-var ps=document.getElementById('ps');
+var ps=document.getElementById('psession');
 sf.forEach(function(f){{var r=document.createElement('div');r.className='fr';r.innerHTML='<span class="l">'+f[0]+'</span><span class="v">'+f[1]+'</span>';ps.appendChild(r)}});
-var pf=document.getElementById('pf');
+var pf=document.getElementById('pfields');
 var rs=d.record_stats;
 ['heart_rate','cadence','speed','enhanced_speed','distance','enhanced_altitude'].forEach(function(fn){{var f=rs[fn];if(!f)return;var r=document.createElement('div');r.className='sb';r.innerHTML='<div class="sl">'+f.label+'</div><div class="sv">'+f.avg+' <span class="sr">avg</span> | '+f.min+' <span class="sr">min</span> | '+f.max+' <span class="sr">max</span></div><div class="sr">'+f.count+'/'+d.record_count+' 点</div>';pf.appendChild(r)}});
-var pl=document.getElementById('pl');
-if(d.laps.length){{var w=document.createElement('div');w.className='ltw';var t=document.createElement('table');t.className='lt';var h=document.createElement('thead');h.innerHTML='<tr><th>#</th><th>距离</th><th>时长</th><th>配速</th><th>平均HR</th><th>最大HR</th><th>步频</th><th>卡路里</th></tr>';t.appendChild(h);var b=document.createElement('tbody');d.laps.forEach(function(l){{var r=document.createElement('tr');r.innerHTML='<td>'+(l.idx+1)+'</td><td>'+l.distance+'m</td><td>'+l.timer+'s</td><td>'+l.pace_str+'</td><td>'+(l.avg_hr||'-')+'</td><td>'+(l.max_hr||'-')+'</td><td>'+(l.avg_cad||'-')+'</td><td>'+(l.calories||0)+'</td>';b.appendChild(r)}});t.appendChild(b);w.appendChild(t);pl.appendChild(w)}}
+var pl=document.getElementById('plaps');
+if(d.laps.length){{var w=document.createElement('div');w.className='ltw';var t=document.createElement('table');t.className='lt';var h=document.createElement('thead');h.innerHTML='<tr><th>#</th><th>距离</th><th>时长</th><th>配速</th><th>平均HR</th><th>最大HR</th><th>步频</th><th>爬升</th><th>下降</th><th>卡路里</th></tr>';t.appendChild(h);var b=document.createElement('tbody');d.laps.forEach(function(l){{var r=document.createElement('tr');r.innerHTML='<td>'+(l.idx+1)+'</td><td>'+l.distance+'m</td><td>'+l.timer+'s</td><td>'+l.pace_str+'</td><td>'+(l.avg_hr||'-')+'</td><td>'+(l.max_hr||'-')+'</td><td>'+(l.avg_cad||'-')+'</td><td>'+(l.ascent||'-')+'</td><td>'+(l.descent||'-')+'</td><td>'+(l.calories||0)+'</td>';b.appendChild(r)}});t.appendChild(b);w.appendChild(t);pl.appendChild(w)}}
 
 var tabs=document.querySelectorAll('.tb .t'),panels=document.querySelectorAll('.tp');
 tabs.forEach(function(t){{t.addEventListener('click',function(){{tabs.forEach(function(x){{x.classList.remove('ac')}});panels.forEach(function(x){{x.classList.remove('ac')}});t.classList.add('ac');document.getElementById('p'+t.dataset.tab).classList.add('ac')}})}});
