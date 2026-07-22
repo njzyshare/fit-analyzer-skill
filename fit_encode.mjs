@@ -6,6 +6,11 @@
  *   node fit_encode.mjs < input_data.json > output.fit
  *   cat data.json | node fit_encode.mjs > activity.fit
  *
+ * 支持等强配速（Effort Pace）:
+ *   传入 data.enableEffortPace=true 时，
+ *   自动用 V2 融合方案（Minetti+心率修正）计算并写入 developer field，
+ *   高驰 APP 可识别显示。
+ *
  * JSON 输入格式:
  * {
  *   "points": [                         // record 数据点（必选）
@@ -13,43 +18,25 @@
  *       "lat": 24.614057,               // WGS84 纬度（度数）
  *       "lon": 118.1377545,             // WGS84 经度（度数）
  *       "ts": 1766274707000,            // Unix 毫秒时间戳
- *       "hr": 173,                      // 心率（可选，null/省略=255）
- *       "cadence": 179,                 // 步频（可选，null/省略=255）
+ *       "hr": 173,                      // 心率（可选）
+ *       "cadence": 179,                 // 步频（可选）
  *       "distance": 0,                  // 累计距离（米，可选）
- *       "altitude": 10.5,               // 海拔（米，可选，null/省略=65535）
- *       "speed": 3.446,                 // 速度（m/s，可选，null/省略=0）
+ *       "altitude": 10.5,               // 海拔（米，可选）
+ *       "speed": 3.446,                 // 速度（m/s，可选）
  *     }
  *   ],
- *   "laps": [                           // 计圈（可选）
- *     {
- *       "start_idx": 0,                 // 对应 points 中的索引范围
- *       "end_idx": 290,
- *       "totalDistance": 1003,
- *       "totalElapsedTime": 291,
- *       "avgHeartRate": 162,
- *       "maxHeartRate": 173,
- *       "avgCadence": 180,
- *       "avgSpeed": 3.45,
- *       "maxSpeed": 3.7,
- *       "totalCalories": 75,
- *     }
- *   ],
+ *   "laps": [ ... ],                    // 计圈（可选）
  *   "session": {                        // 会话概要（必选）
- *     "startTime": 1766274707000,       // Unix ms
- *     "totalTime": 6199000,             // 总计时长（ms）
- *     "totalDistance": 21360,           // 总距离（米）
- *     "totalCalories": 1588,            // 总卡路里（kcal）
- *     "avgHeartRate": 173,
- *     "maxHeartRate": 190,
- *     "avgCadence": 179,
- *     "maxCadence": 186,
- *     "sport": "running",               // 运动类型
- *     "subSport": "generic",
+ *     "startTime": ...,
+ *     "totalTime": ...,
+ *     "totalDistance": ...,
+ *     "avgHeartRate": ...,
+ *     "maxHeartRate": ...,
+ *     "sport": "running",
  *   },
- *   "manufacturer": 1,                  // 制造商（默认1=generic）
- *   "product": 1,                       // 产品ID（默认1）
- *   "productName": "huawei",            // 产品名（默认"huawei"）
- *   "serialNumber": 3500000001,         // 序列号（随机生成）
+ *   "enableEffortPace": true,           // 是否写入等强配速（可选，默认 false）
+ *   "manufacturer": ...,
+ *   "product": ...,
  * }
  */
 
@@ -96,6 +83,23 @@ function encodeFit(data) {
   }
 
   const enc = new Encoder();
+  // ===== 等强配速（Effort Pace）V2 融合方案 =====
+  const enableEffortPace = data.enableEffortPace === true;
+  if (enableEffortPace) {
+    enc.addDeveloperField('effort_pace', {
+      developerDataIndex: 0,
+      manufacturerId: 294,
+      applicationId: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 71],
+    }, {
+      developerDataIndex: 0,
+      fieldDefinitionNumber: 16,
+      fitBaseTypeId: 136,
+      fieldName: 'Effort Pace',
+      units: 'm/s',
+    });
+    enc.writeMesg({ mesgNum: Profile.MesgNum.DEVELOPER_DATA_ID, developerDataIndex: 0, manufacturerId: 294, applicationId: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,71] });
+    enc.writeMesg({ mesgNum: Profile.MesgNum.FIELD_DESCRIPTION, developerDataIndex: 0, fieldDefinitionNumber: 16, fitBaseTypeId: 136, fieldName: 'Effort Pace', units: 'm/s' });
+  }
 
   // file_id — manufacturer: 0xFF（development，不冒充任何品牌）
   // 华为/高驰等手表导出时，原始数据不包含 ANT+ manufacturer ID，
@@ -176,7 +180,9 @@ function encodeFit(data) {
     eventGroup: 0,
   });
 
-  // records — 固定字段布局
+  // records — 固定字段布局（含等强配速）
+  const sessAvgHr = session.avgHeartRate;  // 用于心率修正
+  let prevAlt = null;
   for (const p of pts) {
     const rec = {
       mesgNum: Profile.MesgNum.RECORD,
@@ -190,6 +196,51 @@ function encodeFit(data) {
       enhancedSpeed: p.speed != null ? p.speed : 0,
       enhancedAltitude: p.altitude != null ? Math.round(p.altitude) : FIT_INVALID_U16,
     };
+
+    // V2 等强配速（Effort Pace）
+    if (enableEffortPace) {
+      const spd = p.speed || 0;
+      const alt = p.altitude;
+      let gradePct = 0;
+      if (spd > 0 && alt != null && prevAlt != null && p.distance != null) {
+        const altDelta = alt - prevAlt;       // 海拔变化（米）
+        const distDelta = p.distance - (pts[0].distance || 0); // 水平距离（米）
+        if (distDelta > 1) {
+          gradePct = (altDelta / distDelta) * 100;
+        }
+      }
+      prevAlt = alt;
+
+      // V2 坡度因子
+      let factor;
+      if (gradePct >= 0) {
+        if (gradePct <= 10) factor = 1.0 + gradePct * 0.025;
+        else factor = 1.25 + (gradePct - 10) * 0.03;
+      } else {
+        const absG = Math.abs(gradePct);
+        if (absG <= 10) factor = 1.0 - absG * 0.015;
+        else factor = 0.85 + (absG - 10) * 0.025;
+      }
+
+      // 基础等强配速（用 speed 乘以因子 = 等强速度）
+      let effortSpeed = spd * factor;
+
+      // 心率修正（保留你的方案）
+      if (sessAvgHr && p.hr && sessAvgHr > 0) {
+        const hrRatio = p.hr / sessAvgHr;
+        if (hrRatio > 1.05) {
+          effortSpeed *= (1.0 - 0.3 * (hrRatio - 1.0));
+        } else if (hrRatio < 0.95) {
+          effortSpeed *= (1.0 + 0.2 * (1.0 - hrRatio));
+        }
+      }
+
+      // 下限保护
+      effortSpeed = Math.max(effortSpeed, spd * 0.7);
+
+      rec.developerFields = { effort_pace: Math.round(effortSpeed * 1000) / 1000 };
+    }
+
     enc.writeMesg(rec);
   }
 
@@ -255,7 +306,7 @@ function encodeFit(data) {
   // session
   const totalTimeSec = session.totalTime ? session.totalTime / 1000 : 0;
   const avgSpeed = session.totalDistance && totalTimeSec > 0 ? session.totalDistance / totalTimeSec : 0;
-  enc.writeMesg({
+  const sessMsg = {
     mesgNum: Profile.MesgNum.SESSION,
     timestamp: endDate,
     startTime: startDate,
@@ -279,7 +330,12 @@ function encodeFit(data) {
     maxCadence: session.maxCadence || undefined,
     totalTrainingEffect: session.trainingEffect || undefined,
     totalAnaerobicTrainingEffect: session.anaerobicTrainingEffect || undefined,
-  });
+  };
+  // Session 级别 Effort Pace（平均等强配速）
+  if (enableEffortPace) {
+    sessMsg.developerFields = { effort_pace: Math.round(avgSpeed * 1000) / 1000 };
+  }
+  enc.writeMesg(sessMsg);
 
   // activity
   enc.writeMesg({
