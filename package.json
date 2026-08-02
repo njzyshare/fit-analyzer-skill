@@ -1,0 +1,8 @@
+{
+  "name": "fit-analyzer-skill",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@garmin/fitsdk": "^21.208.0"
+  }
+}

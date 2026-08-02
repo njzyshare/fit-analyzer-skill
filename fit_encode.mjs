@@ -1,0 +1,285 @@
+#!/usr/bin/env node
+/**
+ * FIT 编码器 — 从 stdin JSON 读取数据，输出 .fit 到 stdout
+ *
+ * 用法:
+ *   node fit_encode.mjs < input_data.json > output.fit
+ *   cat data.json | node fit_encode.mjs > activity.fit
+ *
+ * JSON 输入格式:
+ * {
+ *   "points": [                         // record 数据点（必选）
+ *     {
+ *       "lat": 0.0,                     // WGS84 纬度（度数，示例占位）
+ *       "lon": 0.0,                     // WGS84 经度（度数，示例占位）
+ *       "ts": 1766274707000,            // Unix 毫秒时间戳
+ *       "hr": 173,                      // 心率（可选）
+ *       "cadence": 179,                 // 步频（可选）
+ *       "distance": 0,                  // 累计距离（米，可选）
+ *       "altitude": 10.5,               // 海拔（米，可选）
+ *       "speed": 3.446,                 // 速度（m/s，可选）
+ *     }
+ *   ],
+ *   "laps": [ ... ],                    // 计圈（可选）
+ *   "session": {                        // 会话概要（必选）
+ *     "startTime": ...,
+ *     "totalTime": ...,
+ *     "totalDistance": ...,
+ *     "avgHeartRate": ...,
+ *     "maxHeartRate": ...,
+ *     "sport": "running",
+ *   },
+ *   "manufacturer": ...,
+ *   "product": ...,
+ * }
+ */
+
+import {Encoder, Decoder, Stream, Profile} from '@garmin/fitsdk';
+
+// ===== 读取 stdin =====
+let input = '';
+process.stdin.setEncoding('utf-8');
+process.stdin.on('data', chunk => input += chunk);
+process.stdin.on('end', () => {
+  try {
+    const data = JSON.parse(input);
+    const buf = encodeFit(data);
+    process.stdout.write(Buffer.from(buf));
+  } catch (e) {
+    process.stderr.write(`[ERROR] ${e.message}\n`);
+    process.stderr.write(e.stack + '\n');
+    process.exit(1);
+  }
+});
+
+// ===== FIT 编码 =====
+function encodeFit(data) {
+  const pts = data.points || [];
+  const laps = data.laps || [];
+  const session = data.session || {};
+  const serialNumber = data.serialNumber || 1234567890;  // 示例占位，真实 Unit ID 应由调用方在 data.serialNumber 传入
+  const manufacturer = data.manufacturer != null ? data.manufacturer : 0xFF;  // 0xFF = development（无特定制造商）
+  const product = data.product != null ? data.product : 0;  // 0 = 非特定产品
+  const productName = data.productName || '';
+
+  if (pts.length === 0) throw new Error('points array is empty');
+
+  const FIT_INVALID_U8 = 255;
+  const FIT_INVALID_U16 = 0x8000;  // enhancedAltitude 无效值 (32768)
+
+  // 时间对象
+  const startDate = new Date(session.startTime || pts[0].ts);
+  const endDate = new Date(session.startTime + session.totalTime || pts[pts.length - 1].ts);
+
+  // 半圆坐标转换
+  function toSemi(v) {
+    return Math.round(v * (2 ** 32 / 360));
+  }
+
+  const enc = new Encoder();
+
+  // file_id — manufacturer: 0xFF（development，不冒充任何品牌）
+  // 华为/高驰等手表导出时，原始数据不包含 ANT+ manufacturer ID，
+  // 使用 0xFF 表示"无特定制造商"是最规范的做法。
+  const fileIdMsg = {
+    mesgNum: Profile.MesgNum.FILE_ID,
+    type: 'activity',
+    manufacturer: manufacturer,
+    serialNumber: serialNumber,
+    product: product,
+    timeCreated: startDate,
+  };
+  if (productName) fileIdMsg.productName = productName;
+  enc.writeMesg(fileIdMsg);
+
+  // device_info — 同 file_id
+  try {
+    enc.writeMesg({
+      mesgNum: Profile.MesgNum.DEVICE_INFO,
+      timestamp: endDate,
+      deviceIndex: 0,
+      manufacturer: manufacturer,
+      serialNumber: serialNumber,
+      product: product,
+      sourceType: 'local',
+    });
+  } catch (e) {}
+
+  // device_settings
+  try {
+    enc.writeMesg({
+      mesgNum: Profile.MesgNum.DEVICE_SETTINGS,
+      activeTimeZone: 0,
+      utcOffset: 28800,
+      timeMode: ['hour24'],
+      dateMode: 'monthDay',
+    });
+  } catch (e) {}
+
+  // user_profile — 示例默认值（占位，非真实数据）；真实值由调用方在 data.userProfile 覆盖
+  const up = data.userProfile || {};
+  try {
+    enc.writeMesg({
+      mesgNum: Profile.MesgNum.USER_PROFILE,
+      gender: up.gender || 'male',
+      age: up.age || 30,
+      weight: up.weight || 70,
+      height: up.height || 1.75,
+      restingHeartRate: up.restingHeartRate || 60,
+      weightSetting: 'metric',
+      heightSetting: 'metric',
+      distSetting: 'metric',
+    });
+  } catch (e) {}
+
+  // file_creator
+  try {
+    enc.writeMesg({
+      mesgNum: Profile.MesgNum.FILE_CREATOR,
+      softwareVersion: 2238,
+    });
+  } catch (e) {}
+
+  // sport
+  try {
+    enc.writeMesg({
+      mesgNum: Profile.MesgNum.SPORT,
+      sport: session.sport || 'running',
+      subSport: session.subSport || 'generic',
+    });
+  } catch (e) {}
+
+  // event: start
+  enc.writeMesg({
+    mesgNum: Profile.MesgNum.EVENT,
+    timestamp: new Date(pts[0].ts),
+    event: 'timer',
+    eventType: 'start',
+    eventGroup: 0,
+  });
+
+    // records — 固定字段布局
+  for (const p of pts) {
+    const rec = {
+      mesgNum: Profile.MesgNum.RECORD,
+      timestamp: new Date(p.ts),
+      positionLat: p.lat != null ? toSemi(p.lat) : 0,
+      positionLong: p.lon != null ? toSemi(p.lon) : 0,
+      heartRate: (p.hr != null && p.hr > 0) ? p.hr : FIT_INVALID_U8,
+      cadence: (p.cadence != null && p.cadence > 0) ? p.cadence : FIT_INVALID_U8,
+      distance: p.distance != null ? p.distance : 0,
+      speed: p.speed != null ? p.speed : 0,
+      enhancedSpeed: p.speed != null ? p.speed : 0,
+      enhancedAltitude: p.altitude != null ? Math.round(p.altitude) : FIT_INVALID_U16,
+      altitude: p.altitude != null ? Math.round(p.altitude * 2) : undefined,
+    };
+    enc.writeMesg(rec);
+  }
+
+  // event: stop
+  enc.writeMesg({
+    mesgNum: Profile.MesgNum.EVENT,
+    timestamp: new Date(pts[pts.length - 1].ts),
+    event: 'timer',
+    eventType: 'stop',
+    eventGroup: 0,
+  });
+
+  // time_in_zone (optional)
+  if (session.timeInZone && session.timeInZone.length > 0) {
+    try {
+      for (const tz of session.timeInZone) {
+        enc.writeMesg({
+          mesgNum: Profile.MesgNum.TIME_IN_ZONE,
+          timestamp: endDate,
+          referenceMesg: 'session',
+          referenceIndex: 0,
+          timeInZone: tz.seconds,
+          hrZone: tz.zone,
+        });
+      }
+    } catch (e) {}
+  }
+
+  // laps
+  for (let i = 0; i < laps.length; i++) {
+    const lap = laps[i];
+    const lapStart = new Date(lap.startTime || pts[lap.start_idx || 0].ts);
+    const lapEnd = new Date(lap.endTime || pts[lap.end_idx || pts.length - 1].ts);
+    const ld = {
+      mesgNum: Profile.MesgNum.LAP,
+      messageIndex: i,
+      timestamp: lapEnd,
+      startTime: lapStart,
+      totalElapsedTime: lap.totalElapsedTime || 0,
+      totalTimerTime: lap.totalElapsedTime || 0,
+      totalDistance: lap.totalDistance || 0,
+      startPositionLat: lap.startLat != null ? toSemi(lap.startLat) : undefined,
+      startPositionLong: lap.startLon != null ? toSemi(lap.startLon) : undefined,
+      endPositionLat: lap.endLat != null ? toSemi(lap.endLat) : undefined,
+      endPositionLong: lap.endLon != null ? toSemi(lap.endLon) : undefined,
+      avgSpeed: lap.avgSpeed || 0,
+      maxSpeed: lap.maxSpeed || 0,
+      avgHeartRate: lap.avgHeartRate || undefined,
+      maxHeartRate: lap.maxHeartRate || undefined,
+      avgCadence: lap.avgCadence || undefined,
+      totalAscent: lap.totalAscent || undefined,
+      totalDescent: lap.totalDescent || undefined,
+      totalCalories: lap.totalCalories || 0,
+      event: 'lap',
+      eventType: 'stop',
+      lapTrigger: 'distance',
+      sport: session.sport || 'running',
+      subSport: session.subSport || 'generic',
+    };
+    // 清理 undefined
+    for (const k of Object.keys(ld)) if (ld[k] === undefined) delete ld[k];
+    enc.writeMesg(ld);
+  }
+
+  // session
+  const totalTimeSec = session.totalTime ? session.totalTime / 1000 : 0;
+  const avgSpeed = session.totalDistance && totalTimeSec > 0 ? session.totalDistance / totalTimeSec : 0;
+  const sessMsg = {
+    mesgNum: Profile.MesgNum.SESSION,
+    timestamp: endDate,
+    startTime: startDate,
+    totalElapsedTime: totalTimeSec,
+    totalTimerTime: totalTimeSec,
+    totalDistance: session.totalDistance || 0,
+    avgSpeed: avgSpeed,
+    enhancedAvgSpeed: avgSpeed,
+    maxSpeed: session.maxSpeed || avgSpeed,
+    enhancedMaxSpeed: session.maxSpeed || avgSpeed,
+    avgHeartRate: session.avgHeartRate || undefined,
+    maxHeartRate: session.maxHeartRate || undefined,
+    totalCalories: session.totalCalories || 0,
+    numLaps: laps.length,
+    sport: session.sport || 'running',
+    subSport: session.subSport || 'generic',
+    trigger: 'activityEnd',
+    event: 'session',
+    eventType: 'stop',
+    avgCadence: session.avgCadence || undefined,
+    maxCadence: session.maxCadence || undefined,
+    totalAscent: session.totalAscent || undefined,
+    totalDescent: session.totalDescent || undefined,
+    totalTrainingEffect: session.trainingEffect || undefined,
+    totalAnaerobicTrainingEffect: session.anaerobicTrainingEffect || undefined,
+  };
+  enc.writeMesg(sessMsg);
+
+  // activity
+  enc.writeMesg({
+    mesgNum: Profile.MesgNum.ACTIVITY,
+    timestamp: endDate,
+    localTimestamp: Math.round(endDate.getTime() / 1000 + 28800),
+    numSessions: 1,
+    type: 'manual',
+    event: 'activity',
+    eventType: 'stop',
+    eventGroup: 0,
+  });
+
+  return enc.close();
+}

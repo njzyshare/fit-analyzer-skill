@@ -1,0 +1,13 @@
+*.pyc
+__pycache__/
+node_modules/
+package-lock.json
+
+# 临时/草稿调试脚本（含个人路径，不入库）
+scripts/_*.mjs
+
+# 真实运动数据（含个人轨迹与账号信息），禁止提交
+*.fit
+*.gpx
+*.tcx
+*.pwx
