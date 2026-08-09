@@ -482,9 +482,9 @@ def format_datetime(ms):
 
 def main():
     parser = argparse.ArgumentParser(description='批量华为JSON→FIT转换')
-    parser.add_argument('input', nargs='?', default='D:/CD-LIGHT-workbuddy/华为运动数据/motion path detail data1780557919093.json',
+    parser.add_argument('input', nargs='?', default='./huawei_export.json',
                         help='华为运动健康导出JSON路径')
-    parser.add_argument('--output-dir', '-o', default='D:/CD-LIGHT-workbuddy/华为运动FIT',
+    parser.add_argument('--output-dir', '-o', default='./huawei_fit_out',
                         help='输出目录')
     args = parser.parse_args()
     

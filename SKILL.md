@@ -1,7 +1,7 @@
 ---
 name: 运动记录fit分析器
-description: "通用运动 FIT 记录分析/修改工具集。覆盖佳明/高驰/颂拓/华为等品牌 .fit 文件。已落地：合并分段活动、FIT 体检、官方 SDK 重建、华为JSON→FIT/GPX/TCX、时间戳平移、FIT 预览、注入真实佳明设备信息防 Connect 重算爬升。支持 protocol=2 核心消息+设备信息注入。触发词：'合并fit'、'分析fit'、'体检fit'、'导出tcx'、'改时间'、'华为转换'、'预览fit'、'注入佳明设备'、'防重算爬升'。"
-version: 3.10.0
+description: "通用运动 FIT 记录分析/修改工具集。覆盖佳明/高驰/颂拓/华为等品牌 .fit 文件。已落地：合并分段活动、FIT 体检、官方 SDK 重建、华为JSON→FIT/GPX/TCX、时间戳平移、FIT 预览、注入真实佳明设备信息防 Connect 重算爬升、字节级设备身份替换（Fenix8↔COROS 互换，运动数据原样保留）。支持 protocol=2 核心消息+设备信息注入。触发词：'合并fit'、'分析fit'、'体检fit'、'导出tcx'、'改时间'、'华为转换'、'预览fit'、'注入佳明设备'、'防重算爬升'、'改成高驰设备'、'改成佳明设备'、'改设备身份'、'换设备'。"
+version: 3.11.0
 agent_created: true
 ---
 
@@ -22,7 +22,9 @@ agent_created: true
 | 改时间 | `fit_shift_time.py` | 字节级平移时间戳（原始/合并文件） |
 | 改时间（SDK 保真版） | `shift_time_sdk.mjs` | SDK 解码→平移→重编码，保真保留设备信息+私有字段；处理压缩时间戳消息 |
 | **注入佳明设备（防 Connect 重算爬升）** | **`inject_garmin_device.mjs`** | **第三方手表文件 → 真实佳明设备身份** |
-| 注入 COROS 设备身份 | `inject_coros.mjs` | 第三方文件 → 指定 COROS 参考设备（非标准 device_info 布局） |
+| **注入高驰设备（字节级，防「未知设备」/ 四不像）** | **`inject_coros.py`** | **任意 FIT → 真实高驰设备身份：删源 device_info、只留单条高驰、协议翻 0x20、运动数据 100% 保留（私人库 `~/.workbuddy/private/coros_devices.json` + `coros_<name>.fit`）** |
+| 注入 COROS 设备身份（SDK 重编码版，反面教材） | `inject_coros.mjs` | ⚠️ SDK Encoder 无法编出高驰非标准 device_info 布局，厂商码会被错放字段，高驰会拒收；**改高驰身份请用 `inject_coros.py`（字节级）** |
+| **设备身份字节级替换（互逆，推荐）** | **`rebrand_device.py`** | **任意 FIT → 复制参考设备的 file_id+device_info 身份字节，运动数据 100% 保留；高驰↔佳明互换均稳** |
 | 协议字节修复（COROS 时间错乱根因） | `fix_proto.py` | 改 header 协议字节 0x20/0x02 + 重算 header/file 双 CRC |
 
 ## 环境
@@ -121,6 +123,80 @@ node scripts/inject_garmin_device.mjs apply 高驰.fit --device fenix8 --out 高
 
 **注意**：若手上没有真实佳明设备，无法凭空编造可信 Unit ID——Connect 会判为「未知设备」。务必用自己/朋友的佳明活动抽取。
 
+## 为任意 FIT 注入真实高驰(COROS) 设备身份（字节级，阻止「未知设备」/ 四不像）
+
+**问题**：把一份非高驰产出的 FIT（如佳明录的半马）改成高驰设备，上传高驰 app 后被识别异常或显示「未知设备」，或者被当成「四不像」（只换第一条 device_info、剩下一堆原设备传感器）。
+
+**根因**：高驰 `device_info` 是**非标准布局**（`product` 字段=厂商码 `294`，无标准 `manufacturer` 字段）。Garmin SDK 的 `Encoder` 编不出这种布局（会把 294 错放字段 → 高驰拒收/判异常），所以**绝不能用 SDK 重编码**（`inject_coros.mjs` 那条路线已证实走不通，仅作反面教材保留）。唯一可靠做法 = **字节级复制参考高驰文件的 file_id + device_info 原始字节**，其余按源文件拼接。
+
+**与 `rebrand_device.py` 的关键区别**（2026-08-09 实测）：`rebrand_device.py` 只替换「第一条」device_info，源文件其余 device_info 原样保留。但佳明源文件常带 **10+ 条 device_info**（手表+心率带+踏频器等传感器），只换第一条会留下一堆佳明设备 → 四不像。本流程**删除源文件全部 device_info，只注入单条高驰 device_info**，结构等同于一份纯高驰原生文件（1 个 file_id + 1 个 device_info）；并把协议字节翻回高驰原生 `0x20`（回传 COROS app 必须，否则时间被误读成凌晨）。
+
+**工作流（两步，类比佳明注入）**：
+
+```bash
+# 0) 首次：从真实高驰活动抽取设备身份入私人区域（同时保存参考 .fit 字节）
+node 不用；用 Python：
+python scripts/inject_coros.py extract 真实高驰.fit --name apex4
+#    -> 写入 ~/.workbuddy/private/coros_devices.json（mirror garmin_devices.json）
+#    -> 复制参考字节到 ~/.workbuddy/private/coros_apx4.fit（字节级注入必需，不可省略）
+
+# 1) 把私人区域里的身份注入任意 FIT（运动数据 100% 保留，只换设备身份）
+python scripts/inject_coros.py apply 源.fit --device apex4 --out 源_coros.fit
+#    不写 --device 时取私人文件里的 default 项
+#    不写 --out 时默认 <原名>_coros.fit
+#    --proto 0x02 可改标准协议（传 Garmin Connect 时用）；默认 0x20（传 COROS）
+```
+
+**说明**：
+- `extract` 读取真实高驰文件中 `file_id`（manufacturer/product/product_name）与 `device_info`（product_name）身份，写入私人 JSON；并把整份参考 .fit 复制到私人目录（字节级注入需要原始身份字节，JSON 仅作元数据/文档）。
+- `apply` 全量字节级拼接：**复制参考 file_id+device_info 的 def+data 字节，local 号用源文件自己的、time_created/timestamp 用源活动的（保留日期与压缩时间戳时间线）；删除源文件全部 device_info，只嵌单条高驰 device_info；重算 data_size + header CRC + file CRC；协议字节翻 0x20**。保留全部原始运动数据（轨迹/计圈/心率/私有开发者字段）。
+- 校验：输出 `file CRC / header CRC match=True`、`device_info` 仅一条高驰、`records/laps/距离/时长` 与源文件一致、无孤儿定义。
+- 一台高驰只需 `extract` 一次；多台就 `extract --name xxx` 多次，`apply` 用 `--device xxx` 选择。
+- 私人数据（参考字节 + JSON）存 `~/.workbuddy/private/`，**不进 skill/脚本/共享文件**，不会被 GitHub 更新覆盖。
+
+**注意**：若手上没有真实高驰设备，无法凭空编造可信身份——用自己/朋友的高驰活动抽取参考字节。
+
+## 设备身份字节级替换（rebrand：高驰↔佳明 互换，运动数据原样保留）
+
+**场景**：用户要把一个 FIT 的设备身份改成另一台设备（例如把 Garmin fenix8 的导出改成自己的高驰 APEX 4 42mm，或反过来），但**所有运动数据（轨迹/计圈/心率/私有字段）必须原样保留**——只换"这是谁产的"这层身份。
+
+**为什么用字节级而不是 SDK 重编码**（2026-08-02/08-05 实测踩坑）：
+1. SDK 重编码会丢私有/开发者消息类型，且对**压缩时间戳消息**（高位置位 0x80）容易 desync，导致产物无法被严格解析器读。
+2. 高驰 `device_info` 是**非标准布局**：`product` 字段(2) 直接放厂商码 `294`（coros），**没有标准 `manufacturer`(1) 字段**，结构是 `[timestamp(253), product(2)=294, product_name(27)]`。Garmin SDK 的 `Encoder` 会把 294 错误地塞进 field 4（标准 product 位），高驰严格解析器直接把活动判为异常/拒收。
+3. 因此唯一可靠做法：**复制参考设备身份的原始字节，只改本活动的时间戳，其余按原偏移拼接**。
+
+**工作流**：
+
+```bash
+# src = 要改身份的文件；ref = 参考设备身份来源（真·该设备导出的 .fit）；out = 产物
+python scripts/rebrand_device.py <src.fit> <ref.fit> <out.fit>
+
+# 例1：fenix8 活动 → 改成高驰 APEX 4 42mm（ref 用一个真·高驰导出 .fit）
+python scripts/rebrand_device.py fenix8活动.fit 高驰APEX4导出.fit 高驰活动.fit
+
+# 例2：高驰活动 → 改成 fenix8（ref 用一个真·fenix8 导出 .fit）
+python scripts/rebrand_device.py 高驰活动.fit fenix8导出.fit fenix8活动.fit
+```
+
+**脚本做了什么**（`rebrand_device.py`，纯 Python、无依赖）：
+- 解析源文件，定位 `file_id`(global 0) 与 `device_info`(global 23) 的 definition + data 两条消息；参考文件同理。
+- 把参考文件的 file_id/device_info 的 **def + data 字节原样复制**，但：
+  - 两条消息的 **local 号强制设成源文件自己的**（避免与文件内其它 def 冲突）；
+  - `file_id` field 4（time_created）与 `device_info` field 253（timestamp）**改成源活动自己的创建时间**（从源 file_id field 4 读），这样日期正确、压缩时间戳记录仍按同一时间线解码；
+- 其余所有字节（轨迹/计圈/session/事件/私有开发者字段）按源文件原偏移 **逐字节拼接**；
+- 重算并写入：`header` 的 `data_size`(偏移4) + `header CRC`(偏移12-13) + 文件尾 `file CRC`(末2字节)。
+
+**铁律 / 关键坑（务必遵守）**：
+- **CRC 必须用 Garmin 半字节表** `[0x0000,0xCC01,0xD801,0x1400,0xF001,0x3C00,0x2800,0xE401,0xA001,0x6C00,0x7800,0xB401,0x5000,0x9C01,0x8801,0x4400]`（脚本已内置）。网上常见的 CCITT 表算不出真实 FIT 的 CRC（26.7.fit 真实尾 CRC=0xE8ED，错表对不上）。
+- **`find_pair` 返回 `(def, data)`**——解包时写成 `_, x = find_pair(...)` 会把 **data 当 def** 用，导致文件膨胀+结构错。要拿 def 取第一个元素。
+- 替换后文件大小可能变化（高驰身份比 fenix8 精简约 12 字节），必须同步重算 `data_size` 字段（公式 `len(out_b) - header_size`，此时 CRC 尚未追加）。
+- **不要动时间戳以外的数据**：用户要的是"换设备身份"，不是"平移时间"。只在身份消息里改时间，轨迹 record 的时间戳一律不动（除非用户明确要求平移，那走 `shift_time_sdk.mjs`）。
+
+**验证（交付前必跑）**：
+- `python -c "import ...; fit_crc16(open(out,'rb').read()[:-2])"` 应等于文件末2字节；header CRC 同理。
+- 用 `@garmin/fitsdk` 的 `Decoder.read()` 解码 `errors.length === 0`，且 `fileIdMesgs[0]`/`deviceInfoMesgs[0]` 身份读成目标设备；record/lap/session/event 计数与源文件一致（运动数据未被触动）。
+- 字节级对比：除身份区外，源文件与产物应逐字节相同（diff=0）。
+
 ## 脚本说明
 
 | 脚本 | 功能 | 适用平台 |
@@ -139,7 +215,9 @@ node scripts/inject_garmin_device.mjs apply 高驰.fit --device fenix8 --out 高
 | **`huawei_batch_convert.py`** | **批量华为 JSON → 按类型分目录输出 FIT** | **华为全量数据 → 高驰/佳明 ✅** |
 | `fit_encode.mjs` | FIT 编码器（供 huawei_convert.py 等内部调用） | 依赖 @garmin/fitsdk |
 | **`inject_garmin_device.mjs`** | **注入真实佳明设备信息（extract 抽取 / apply 注入），防 Connect 重算爬升** | **依赖 @garmin/fitsdk；设备数据读 ~/.workbuddy/private/garmin_devices.json** |
-| `inject_coros.mjs` | 注入 COROS 设备身份：从参考 COROS 文件读 file_id+device_info（非标准布局：product 字段=294、无 manufacturer 字段），其余原始数据保留；修合并后「未知设备」 | 高驰 ✅ |
+| **`inject_coros.py`** | **注入真实高驰设备信息（extract 抽取 / apply 注入，字节级）：参考高驰 .fit 的 file_id+device_info 原始字节复制进任意 FIT，删除源全部 device_info 只留单条高驰，协议翻 0x20；运动数据/私有字段 100% 保留** | **纯 Python 无依赖；设备元数据读 `~/.workbuddy/private/coros_devices.json`，参考字节读 `~/.workbuddy/private/coros_<name>.fit`** |
+| `inject_coros.mjs` | 注入 COROS 设备身份：从参考 COROS 文件读 file_id+device_info（非标准布局：product 字段=294、无 manufacturer 字段），其余原始数据保留；修合并后「未知设备」 | 高驰 ✅（但 SDK 重编码版会把厂商码错放字段，改高驰身份请用 `inject_coros.py` 字节级） |
+| **`rebrand_device.py`** | **设备身份字节级替换：复制参考设备的 file_id+device_info 字节，local 号与活动时间戳用源文件自己的，其余逐字节拼接；重算 data_size+header CRC+file CRC。运动数据 100% 保留** | **通用 ✅ 高驰↔佳明互换均稳（纯 Python 无依赖）** |
 | `fix_proto.py` | **协议字节修复**：header 第 2 字节翻回 COROS 原生 0x20（或标准 0x02）+ 重算 header CRC(12-13) 与 file CRC(末2字节) 两道校验；解决 COROS 读 0x02 文件时间错乱(04:06) | 高驰 ✅（回传 COROS 必须保 0x20） |
 
 ### 注意

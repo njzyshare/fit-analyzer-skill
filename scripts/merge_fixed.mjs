@@ -176,7 +176,7 @@ try {
 // 文件创建者 + 设备设置 + 用户简档
 try { enc.writeMesg({ mesgNum: Profile.MesgNum.FILE_CREATOR, softwareVersion: 2238 }); } catch(e) { console.log('  fileCreator跳过:', e.message); }
 try { enc.writeMesg({ mesgNum: Profile.MesgNum.DEVICE_SETTINGS, activeTimeZone: 0, utcOffset: 0, timeOffset: [28800], timeMode: ['hour24'], backlightMode: 'autoBrightness', dateMode: 'monthDay', mountingSide: 'left' }); } catch(e) { console.log('  deviceSettings跳过:', e.message); }
-try { enc.writeMesg({ mesgNum: Profile.MesgNum.USER_PROFILE, gender: 'male', age: 35, weight: 74, height: 1.77, weightSetting: 'metric', heightSetting: 'metric', distSetting: 'metric', restingHeartRate: 60 }); } catch(e) { console.log('  userProfile跳过:', e.message); }
+try { enc.writeMesg({ mesgNum: Profile.MesgNum.USER_PROFILE, gender: 'male', age: 30, weight: 70, height: 1.75, weightSetting: 'metric', heightSetting: 'metric', distSetting: 'metric', restingHeartRate: 60 }); } catch(e) { console.log('  userProfile跳过:', e.message); } // 示例占位值，非真实数据
 
 // 运动类型
 try { enc.writeMesg({ mesgNum: Profile.MesgNum.SPORT, sport: 'running', subSport: 'generic' }); } catch(e) { console.log('  sport跳过:', e.message); }
