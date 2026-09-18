@@ -268,12 +268,19 @@ class QA:
         fd = msgs.get("field_description", [])
         has_effort = any((self.gv(m, "field_name") or "").lower().replace(" ", "")
                          in ("effortpace", "等强配速", "effort", "pace") for m in fd)
-        # 只要存在 Effort Pace 定义即可；也可放宽到"存在任意 field_description 且 record 带 dev 字段"
         recs = msgs.get("record", [])
         rec_has_dev = any(getattr(m, "message", None) and m.message.dev_fields for m in recs)
-        ok = has_effort or (len(fd) > 0 and rec_has_dev)
-        self.check("T07 私有字段(Effort Pace)保留", ok,
-                   f"field_description={len(fd)} 含EffortPace={has_effort} record带dev={rec_has_dev}")
+        has_dev_id = len(msgs.get("developer_data_id", [])) > 0
+        if has_dev_id:
+            # 合并/保留模式：第三方私有字段应被保留，丢了是 bug
+            ok = has_effort or (len(fd) > 0 and rec_has_dev)
+            self.check("T07 私有字段(Effort Pace)保留", ok,
+                       f"field_description={len(fd)} 含EffortPace={has_effort} record带dev={rec_has_dev}")
+        else:
+            # 剥离模式（第三方手表 → 佳明身份伪装）：developer 段已移除，
+            # 高驰 Effort Pace 等厂商私有字段对 Garmin 无意义且易触发拒绝，剥离为预期行为
+            self.warn("T07 私有字段(已剥离-设备伪装模式)",
+                      f"无 developer_data_id，第三方私有字段已剥离——对 Garmin 上传为预期行为(非 FAIL)")
 
     def test_laps(self, msgs):
         laps = msgs.get("lap", [])

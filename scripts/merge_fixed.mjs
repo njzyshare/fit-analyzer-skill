@@ -25,9 +25,8 @@ import {Decoder, Encoder, Stream, Profile} from '@garmin/fitsdk';
 import fs from 'fs';
 
 const files = [
-  './seg1.fit',  // 替换为你的分段文件路径
+  './seg1.fit',  // 替换为你的分段文件路径（按首条 record 时间戳自动排序）
   './seg2.fit',
-  './seg3.fit',
 ];
 
 const segs = files.map(fp => {
@@ -36,30 +35,41 @@ const segs = files.map(fp => {
 });
 segs.sort((a,b) => (a.messages.recordMesgs?.[0]?.timestamp) - (b.messages.recordMesgs?.[0]?.timestamp));
 
-// 合并 records（含暂停段插入）
+// 合并 records（段间停顿策略见下）
 const mergedRecs = [];
 let doff = 0;
+let lastEndTs = null;       // 上一段最后一条 record 的时间戳(ms)
+const RESUME_GAP_MS = 5000; // 启用压缩时，段间视作「暂停数秒后继续」而非小时级断开
+// 段间停顿处理策略（CLI 可覆盖）：
+//   --compress-pause  强制压缩（段间压成 5s 续跑，不保留停顿）
+//   --keep-pause      强制保留原始段间停顿（时间戳不做平移）
+//   默认(auto)：段间停顿 > 60 分钟，或段间重叠(gap<=0) 才自动压缩；
+//              否则保留原始停顿（用户常希望把中途断开/充电等显示为真实暂停，且计入 elapsed 不含配速）
+const rawPauseArg = process.argv.find(a => a === '--compress-pause' || a === '--keep-pause');
+const pauseArg = rawPauseArg === '--compress-pause' ? 'compress' : rawPauseArg === '--keep-pause' ? 'keep' : 'auto';
+const AUTO_COMPRESS_MS = 60 * 60 * 1000; // 60 分钟
 for (let si = 0; si < segs.length; si++) {
   const seg = segs[si];
   const recs = seg.messages.recordMesgs || [];
   if (!recs.length) continue;
   const sd = recs[0].distance || 0;
-  for (const r of recs) if (r.distance != null) r.distance = (r.distance - sd) + doff;
+  // 段间时间戳处理：默认保留原始间隔；仅当 auto 且(间隔>60min 或重叠)，或显式 --compress-pause 时才平移压缩
+  let tdelta = 0;
+  if (lastEndTs != null && recs[0].timestamp) {
+    const gap = recs[0].timestamp.getTime() - lastEndTs;
+    let compress;
+    if (pauseArg === 'compress') compress = true;
+    else if (pauseArg === 'keep') compress = false;
+    else compress = gap > AUTO_COMPRESS_MS || gap <= 0; // auto
+    if (compress) tdelta = (lastEndTs + RESUME_GAP_MS) - recs[0].timestamp.getTime();
+  }
+  for (const r of recs) {
+    if (r.distance != null) r.distance = (r.distance - sd) + doff;
+    if (tdelta && r.timestamp) r.timestamp = new Date(r.timestamp.getTime() + tdelta);
+  }
   mergedRecs.push(...recs);
   doff = recs[recs.length - 1].distance || doff;
-
-  if (si < segs.length - 1) {
-    const nextSeg = segs[si + 1];
-    if (!nextSeg.messages.recordMesgs?.length) continue;
-    const gap = (nextSeg.messages.recordMesgs[0].timestamp - recs[recs.length - 1].timestamp) / 1000;
-    if (gap > 0) {
-      const lr = recs[recs.length - 1];
-      for (let t = recs[recs.length - 1].timestamp / 1000 + 5; t < nextSeg.messages.recordMesgs[0].timestamp / 1000; t += 5) {
-        mergedRecs.push({timestamp: new Date(t * 1000), heartRate: lr.heartRate, speed: 0, distance: doff,
-          enhancedAltitude: lr.enhancedAltitude, positionLat: lr.positionLat, positionLong: lr.positionLong});
-      }
-    }
-  }
+  lastEndTs = (recs[recs.length - 1].timestamp || {}).getTime ? recs[recs.length - 1].timestamp.getTime() : null;
 }
 
 const td = mergedRecs[mergedRecs.length - 1].distance || 0;
@@ -85,6 +95,7 @@ console.log(`timer(正确): ${(correctTimer/60).toFixed(1)}min, timer(含暂停)
 const LAP_DIST = 1000;
 const laps = [];
 let cur = [], nb = LAP_DIST, base = mergedRecs[0]?.distance || 0;
+let lapStartDist = base; // 精确边界：每满圈 = 1000m 整
 
 function calcLapSummary(rs) {
   if (!rs.length) return null;
@@ -94,7 +105,22 @@ function calcLapSummary(rs) {
   const spds=act.filter(r=>r.speed>0).map(r=>r.speed);
   const dist=(l.distance||0)-(f.distance||0);
   const el=(l.timestamp-f.timestamp)/1000;
-  let t=0; for(let i=0;i<rs.length-1;i++) if(rs[i].speed>0||(rs[i].heartRate!=null&&rs[i].heartRate>0)) t+=(rs[i+1].timestamp-rs[i].timestamp)/1000;
+  // 暂停感知运动计时：用「距离增量反算的瞬时速度」判定移动，跳过真实停顿，pause 不计入圈配速
+  //   ① 长暂停：相邻 record 时间跳变>60s 且几乎没位移（过马路/补水/段间断开等真实停下）
+  //   ② 短停留：≤60s 但瞬时速度≈0(≤0.3 m/s，约 1km/h 以下) 且几乎没位移（人站着心率仍>0，易被误算成运动时间）
+  //   关键：用距离增量反算瞬时速度 inst=Δ距离/Δ时间，而非读取可能缺失的 speed 字段（fitsdk 解码后 speed 常为 None，
+  //        若依赖 speed 字段会误把跑步记录全判成「站立」→ 运动时间归零、配速崩坏）
+  let t=0;
+  for(let i=0;i<rs.length-1;i++){
+    const a=rs[i], b=rs[i+1];
+    const dt=(b.timestamp-a.timestamp)/1000;
+    const dd=Math.abs((b.distance||0)-(a.distance||0));
+    const inst = dt>0 ? dd/dt : 0;
+    const isLongPause = dt>60 && dd<50;
+    const isShortStop  = dt>0 && dt<=60 && inst<=0.3 && dd<5;
+    if(isLongPause || isShortStop) continue;
+    if(inst>0.1) t+=dt;
+  }
   if(!t) t=el;
   
   // 从 records 中收集步态数据
@@ -123,8 +149,13 @@ for(const r of mergedRecs) {
   while(d>=base+nb) {
     let idx=-1; for(let i=0;i<cur.length;i++) if((cur[i].distance||0)>=base+nb){idx=i;break;}
     if(idx<0) break;
-    const lap=calcLapSummary(cur.slice(0,idx+1)); if(lap&&lap.totalDistance>0) laps.push(lap);
-    cur=cur.slice(idx+1); nb+=LAP_DIST;
+    const lap=calcLapSummary(cur.slice(0,idx+1));
+    if(lap&&lap.totalDistance>0){
+      lap.totalDistance = (base+nb) - lapStartDist; // 精确1km边界
+      if(lap.totalTimerTime) lap.avgSpeed = lap.totalDistance/lap.totalTimerTime;
+      laps.push(lap);
+    }
+    cur=cur.slice(idx+1); lapStartDist = base+nb; nb+=LAP_DIST;
   }
 }
 if(cur.length&&cur.some(r=>r.speed>0||(r.heartRate!=null&&r.heartRate>0))&&td>0) {

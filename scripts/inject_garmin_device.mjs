@@ -16,6 +16,11 @@
 // 不匹配则显示「未知设备」且可能照常重算海拔。同时，设备是否带气压高度计决定高程校正开关
 // （带气压计→校正默认关、用设备记录海拔；不带→用 DEM 地形数据替换每个轨迹点=二次加工爬升）。
 // 因此注入「真实佳明带气压计设备」信息即可彻底解决。
+//
+// 关于第三方私有字段（developer_data_id / field_description / record 内 dev fields）：
+//   这些字段归属「第三方厂商身份」，与注入的佳明身份冲突，且常见到重复 field_description、
+//   或引用第三方 application_id，极易触发 Garmin Connect 拒绝。故默认【剥离】整套 developer 段。
+//   仅当 developer_data_id 的制造商与目标佳明一致时才保留（罕见场景）。
 
 import { Decoder, Encoder, Stream, Profile } from '@garmin/fitsdk';
 import fs from 'fs';
@@ -58,7 +63,34 @@ function readDeviceFromFit(fitPath) {
   };
 }
 
-// 把私人区域里的设备信息应用到第三方 FIT（保留全部原始数据含私有 dev 字段，删掉原第三方 device_info）
+// 抽取一条消息的字段（兼容 {fields:{...}} 与平铺两种结构）。
+// 剥离模式下必须剔除 developerFields（厂商私有字段），否则 Encoder 找不到其定义会报
+// "invalid field description for key N"。保留模式下该键会随 fieldDescriptions 一并注册，无需剔除。
+function getFields(m) {
+  if (m && m.fields && typeof m.fields === 'object') {
+    const o = {};
+    for (const k of Object.keys(m.fields)) {
+      if (k === 'mesgNum' || k === 'key' || k === 'developerFields') continue;
+      o[k] = m.fields[k];
+    }
+    return o;
+  }
+  const o = {};
+  for (const k of Object.keys(m || {})) {
+    if (k === 'mesgNum' || k === 'key' || k === 'developerFields') continue;
+    o[k] = m[k];
+  }
+  return o;
+}
+
+function writeMsg(enc, mesgNum, m) {
+  enc.writeMesg({ mesgNum, ...getFields(m) });
+}
+
+const isStart = (e) => { const f = getFields(e); return f.event === 'timer' && f.eventType === 'start'; };
+const isStop = (e) => { const f = getFields(e); return f.event === 'timer' && f.eventType === 'stop'; };
+
+// 把私人区域里的设备信息应用到第三方 FIT（剥离第三方私有 developer 段，重写标准消息，单条佳明 device_info）
 function applyDevice(srcFit, key, outFit) {
   const store = loadStore();
   const dev = store.devices?.[key] || store[key];
@@ -69,19 +101,30 @@ function applyDevice(srcFit, key, outFit) {
   const { messages, errors } = new Decoder(Stream.fromBuffer(bytes)).read({});
   if (errors.length) console.error('decode warnings:', errors.slice(0, 3));
 
-  // 保留开发者字段（高驰 Effort Pace 等私有字段）
+  // 第三方 developer 段：仅当 developer_data_id 制造商与目标一致才保留，否则剥离
   const devDataIds = messages.developerDataIdMesgs || [];
-  const fieldDescs = messages.fieldDescriptionMesgs || [];
+  const keepDev = devDataIds.length > 0 && devDataIds.every(d => {
+    const f = getFields(d);
+    const mfr = f.manufacturer_id ?? f.manufacturer;
+    return mfr === dev.manufacturer || mfr === 1;
+  });
+  if (devDataIds.length && !keepDev) {
+    const f0 = getFields(devDataIds[0]);
+    console.log(`剥离第三方 developer 私有字段 (developer_data_id 制造商=${f0.manufacturer_id ?? f0.manufacturer} ≠ ${dev.manufacturer})`);
+  }
+
+  const fieldDescs = keepDev ? (messages.fieldDescriptionMesgs || []) : [];
   const fieldDescriptions = {};
   for (const fd of fieldDescs) {
-    const k = fd.key != null ? fd.key : fd.fieldDefinitionNumber;
+    const f = getFields(fd);
+    const k = fd.key != null ? fd.key : f.field_definition_number;
     const did = devDataIds[fd.developerDataIndex] || devDataIds[0];
     fieldDescriptions[k] = { developerDataIdMesg: did, fieldDescriptionMesg: fd };
   }
   const enc = new Encoder({ fieldDescriptions });
 
   const fid = messages.fileIdMesgs[0];
-  const fidF = fid.fields || fid;
+  const fidF = getFields(fid);
   // file_id -> 真实佳明设备
   enc.writeMesg({
     mesgNum: Profile.MesgNum.FILE_ID,
@@ -93,11 +136,13 @@ function applyDevice(srcFit, key, outFit) {
     productName: dev.productName,
   });
 
-  // 开发者字段描述（必须在 record 之前）
-  for (const d of devDataIds) { const o = { mesgNum: Profile.MesgNum.DEVELOPER_DATA_ID, ...d }; delete o.key; enc.writeMesg(o); }
-  for (const f of fieldDescs) { const o = { mesgNum: Profile.MesgNum.FIELD_DESCRIPTION, ...f }; delete o.key; enc.writeMesg(o); }
+  // developer 段（仅 keepDev 时）
+  if (keepDev) {
+    for (const d of devDataIds) writeMsg(enc, Profile.MesgNum.DEVELOPER_DATA_ID, d);
+    for (const f of fieldDescs) writeMsg(enc, Profile.MesgNum.FIELD_DESCRIPTION, f);
+  }
 
-  // device_info：仅写一条佳明（删掉第三方原 device_info）
+  // device_info：仅一条佳明（删掉第三方原 device_info）
   enc.writeMesg({
     mesgNum: Profile.MesgNum.DEVICE_INFO,
     timestamp: fidF.timeCreated,
@@ -111,23 +156,19 @@ function applyDevice(srcFit, key, outFit) {
     ...(dev.hardwareVersion ? { hardwareVersion: dev.hardwareVersion } : {}),
   });
 
-  // 其余消息原样重写
+  // 其余标准消息：按 FIT 规范顺序原样重写，保留全部数据（含所有 event）
   const evs = messages.eventMesgs || [];
-  const startEv = evs.find(e => e.event === 'timer' && e.eventType === 'start');
-  const stopEv = evs.find(e => e.event === 'timer' && e.eventType === 'stop');
-  const lapEvs = evs.filter(e => e.event === 'lap');
-  const otherEvs = evs.filter(e => !(e.event === 'timer' && (e.eventType === 'start' || e.eventType === 'stop')) && e.event !== 'lap');
-  if (startEv) enc.writeMesg({ mesgNum: Profile.MesgNum.EVENT, ...strip(startEv) });
-  for (const r of (messages.recordMesgs || [])) enc.writeMesg({ mesgNum: Profile.MesgNum.RECORD, ...r });
-  const laps = messages.lapMesgs || [];
-  for (let i = 0; i < laps.length; i++) {
-    if (lapEvs[i]) enc.writeMesg({ mesgNum: Profile.MesgNum.EVENT, ...strip(lapEvs[i]) });
-    enc.writeMesg({ mesgNum: Profile.MesgNum.LAP, ...laps[i] });
-  }
-  for (const e of otherEvs) enc.writeMesg({ mesgNum: Profile.MesgNum.EVENT, ...strip(e) });
-  if (stopEv) enc.writeMesg({ mesgNum: Profile.MesgNum.EVENT, ...strip(stopEv) });
-  for (const s of (messages.sessionMesgs || [])) enc.writeMesg({ mesgNum: Profile.MesgNum.SESSION, ...s });
-  for (const a of (messages.activityMesgs || [])) enc.writeMesg({ mesgNum: Profile.MesgNum.ACTIVITY, ...a });
+  const starts = evs.filter(isStart);
+  const stops = evs.filter(isStop);
+  const mids = evs.filter(e => !isStart(e) && !isStop(e));
+
+  for (const e of starts) writeMsg(enc, Profile.MesgNum.EVENT, e);
+  for (const r of (messages.recordMesgs || [])) writeMsg(enc, Profile.MesgNum.RECORD, r);
+  for (const e of mids) writeMsg(enc, Profile.MesgNum.EVENT, e);
+  for (const l of (messages.lapMesgs || [])) writeMsg(enc, Profile.MesgNum.LAP, l);
+  for (const s of (messages.sessionMesgs || [])) writeMsg(enc, Profile.MesgNum.SESSION, s);
+  for (const e of stops) writeMsg(enc, Profile.MesgNum.EVENT, e);
+  for (const a of (messages.activityMesgs || [])) writeMsg(enc, Profile.MesgNum.ACTIVITY, a);
 
   const outBuf = enc.close();
   fs.writeFileSync(outFit, Buffer.from(outBuf));
@@ -138,15 +179,14 @@ function applyDevice(srcFit, key, outFit) {
   console.log(`已生成 ${outFit} (${outBuf.length} bytes), integrity=${ok}`);
   if (!ok) throw new Error('integrity 校验失败，文件可能损坏');
   const m2 = d2.read({}).messages;
-  const outFid = m2.fileIdMesgs[0].fields || m2.fileIdMesgs[0];
+  const outFid = getFields(m2.fileIdMesgs[0]);
   console.log(`  file_id: ${outFid.manufacturer}/${outFid.productName} sn=${outFid.serialNumber}`);
-  const devs = (m2.deviceInfoMesgs || []).map(x => { const f = x.fields || x; return `${f.manufacturer}/${f.productName}`; });
+  const devs = (m2.deviceInfoMesgs || []).map(x => { const f = getFields(x); return `${f.manufacturer}/${f.productName}`; });
   console.log(`  device_info: ${JSON.stringify(devs)}`);
-  const s0 = m2.sessionMesgs[0].fields || m2.sessionMesgs[0];
+  const s0 = getFields(m2.sessionMesgs[0]);
   console.log(`  爬升 ascent/descent 保留: ${s0.totalAscent}/${s0.totalDescent}`);
+  console.log(`  record 数: ${(m2.recordMesgs || []).length}, event 数: ${(m2.eventMesgs || []).length}`);
 }
-
-function strip(m) { const o = { ...m }; delete o.mesgNum; return o; }
 
 // ---- CLI ----
 const [mode, arg1, ...rest] = process.argv.slice(2);

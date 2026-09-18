@@ -153,10 +153,13 @@ def cmd_apply(args):
     # 拼接：先放原始 header（后面再改 data_size/proto/header CRC），再按源文件顺序遍历消息
     out = bytearray(tdata[:thsize])
     di_emitted = False
+    fid_emitted = False
     for r in trecs:
-        if r["global"] == 0:  # file_id：替换
-            out += nf_def
-            out += nf_data
+        if r["global"] == 0:  # file_id：替换（只输出一次，避免 def+data 各触发一次造成重复）
+            if not fid_emitted:
+                out += nf_def
+                out += nf_data
+                fid_emitted = True
         elif r["global"] == 23:  # device_info：只注入单条，其余丢弃
             if not di_emitted:
                 out += nd_def
