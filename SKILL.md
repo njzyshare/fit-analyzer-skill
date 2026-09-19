@@ -1,7 +1,7 @@
 ---
 name: 运动记录fit分析器
 description: "通用运动 FIT 记录分析/修改工具集。覆盖佳明/高驰/颂拓/华为等品牌 .fit 文件。能力：合并分段活动、FIT 体检、官方 SDK 重建、华为JSON→FIT/GPX/TCX、时间戳平移、FIT 预览、注入真实佳明/高驰设备信息（防 Connect 重算爬升 / 防未知设备）、字节级设备身份替换（Fenix8↔COROS 互换）、跨品牌互转（佳明↔高驰，规范驱动+双关卡门禁）。触发词：'合并fit'、'分析fit'、'体检fit'、'导出tcx'、'改时间'、'华为转换'、'预览fit'、'注入佳明设备'、'防重算爬升'、'改成高驰设备'、'改成佳明设备'、'改设备身份'、'换设备'、'互转fit'、'规范门禁'、'学模板'、'全维度比对'。"
-version: 4.5.0
+version: 4.7.2
 agent_created: true
 ---
 
@@ -89,9 +89,32 @@ agent_created: true
 - 工作流：`inject_coros.py extract 真实高驰.fit --name apex4` → `inject_coros.py apply 源.fit --device apex4 --out 源_coros.fit`（proto 默认 0x20 回传 COROS）。
 - 约束：删源全部 device_info 只嵌单条高驰；协议翻 0x20；运动数据/私有字段 100% 保留。参考字节存 `~/.workbuddy/private/coros_<name>.fit`，不与脚本同走 GitHub。
 
+**实战核对要点（以 641306693 fenix8→apex4 为例）**
+- 源是 Garmin fenix8（48 条 device_info：手表+气压计+GPS+心率带等传感器），产物只剩 **1 条** 高驰 device_info —— 这是预期，不是丢数据。
+- 身份核对：产物 `file_id.manufacturer=coros`、`device_info.product=814`、`product_name=COROS APEX 4 42mm`。
+- **条数守恒是硬指标**：用 fitdecode 统计 record / lap / event / gps_metadata 等消息条数，产物必须与源**逐项相等**，只有 device_info 从「源条数→1」例外。本例 record 4224 / lap 39 / event 14 / gps_metadata 5197 全相等。
+- 产物字节数会比源**小**（少掉被删的传感器 device_info 原始字节），正常。
+- 验证脚本模板：遍历 `FitReader`，`isinstance(m, FitDataMessage)` 才计数，按 `m.name` 归桶统计，与源对比。
+
+⚠️ **`inject_coros` 只换设备身份，不转数据格式（关键认知）**：产物是「高驰壳 + 原设备芯」。与高驰真机比对（641306693 转后 vs 478572… 运动场；640810408 转后 vs lupao 30K 两次实战）揭示：
+  - **设备外观一致**：file_id + device_info 都是 `coros / product=814 / COROS APEX 4 42mm`，表面看不出区别（这正是注入的目的，不会被 COROS 拒为未知设备）。
+  - **数据内核天差地别（仅「消息种类」层，字段层不缺）**：转后文件保留原设备（如 Garmin）的全部私有消息（`unknown_233/534/325…`、`gps_metadata`、`split`、`split_summary`、`time_in_zone`、`timestamp_correlation`、`training_settings`、`device_settings`、`file_creator`、`sport`、`user_profile`、`zones_target` 等 30+ 种）；而高驰真机消息集更精简（仅 9 种：record/event/lap/file_id/developer_data_id/device_info/activity/session/field_description）。但**两侧 record 的标准字段都全**：position_lat/long(GPS)、heart_rate、enhanced_speed、cadence、power、跑步动态(stance_time/vertical_oscillation/vertical_ratio/step_length) 等 17 字段两平台原生都有（已用 record 全量字段枚举核实，非凭记）。**record 里的标准 GPS/心率/跑步动态字段两平台都能读，只是「消息级」私有消息（Garmin 的 unknown_*/gps_metadata/split 等）对方不解析（无害）**。
+  - **计圈粒度：取决于源，不一定差**。源 Garmin 若本身是 1km 自动圈（如 640810408 13.6km = 13×1km+0.61km），转后就是 1km 圈，与高驰原生一致；源若是 400m 操场圈（如 641306693 15.2km = 39×400m），转后才显得细碎。**不能一刀切说"计圈粒度天差地别"**。
+  - **高驰 Effort Pace（等强配速）特征**：真机 lupao 30K 带 `developer_data_id(manufacturer=coros, application_id 末字节 0x47='G')` + `field_description`("Effort Pace", float32, 单位 m/s)×2 + 每条 record 一个 dev 字段 "Effort Pace"（样本值 ~0.724 m/s）。但**不是所有高驰活动都有**：运动场 478572… 就无 EP（field_description=0、record 无 dev 字段）。转后文件（inject_coros 剥离了私有字段）一律**无 Effort Pace**，导入 COROS 显示不了等强配速。
+  - **后果**：导入 COROS app 能显示完整跑步（距离/心率/配速/GPS 轨迹/跑步动态——这些标准字段两平台互通），仅佳明侧「消息级」私有消息与 Effort Pace 这类平台专属指标不可见（inject_coros 会剥离佳明私有字段，故转后无 EP）。
+  - **若要真·高驰原生**（1km 圈 + Effort Pace + 高驰私有布局），必须走**路线② 规范驱动互转**（`fit_convert_by_template.py --to coros_apex4`），而非 `inject_coros` 这种换皮。
+  - **反向同样成立（COROS→Garmin 换皮）**：`rebrand_device.py lupao30K.fit 640810408.fit out.fit` 把高驰原生 lupao 30K 换皮成 Garmin fenix8，结果镜像对称——file_id/device_info 都成 `garmin/fenix8`（QA T05 识别为单一 garmin/fenix8 设备），`record` 同样含 GPS/心率/跑步动态等 17 标准字段（数据内核完整保留）+ COROS 的 `developer_data_id(manufacturer=coros, app_id 末字节 0x47='G')` + `field_description("Effort Pace")` + 每条 record 的 dev 字段。导入 Garmin Connect **有 GPS 轨迹图、有逐点心率/配速曲线、有跑步动态**；仅 COROS 的 Effort Pace dev 字段 Connect 不显示（无害）。两条路都只是「贴牌」——设备身份变、核心运动数据不变。
+
+🔴 **`lap.total_distance` 是「每圈分段距离」不是累计（易踩坑）**：这两个文件族（Garmin 导出 + 高驰真机）的 `lap.total_distance` 都存的是**该圈自己的距离**（如 13.6km 活动 = 13×1000 + 610.59），不是到该圈为止的累计。因此：① 算每圈分段**直接取 raw 值 /1000 即可，别用 d-prev 减**（会算出一堆 0.0）；② `fit_qa.py` T08 把各圈 raw 值求和得总距，与 session 总距吻合 → 这是「分段求和」逻辑，不是「累计」。写圈距比对脚本时务必用分段口径。
+
 ### 设备身份字节级替换（rebrand：Fenix8↔COROS 互换）
 - `rebrand_device.py <src.fit> <ref.fit> <out.fit>`：复制 ref 的 file_id+device_info 字节，local 号与活动时间戳用 src 自己的，其余逐字节拼接，重算 data_size+header CRC+file CRC。运动数据 100% 保留。
 - 高驰源文件常带 10+ 条 device_info（传感器），只换第一条会留「四不像」——用 `inject_coros.py` 全删重嵌更稳。
+
+### 换皮双方向：一步到位命令（已实测，遵循「环境」段跑法）
+- **佳明→高驰**：`python inject_coros.py apply <佳明源.fit> --device apex4 --out <出.fit>` → 产物 `coros/814/COROS APEX 4 42mm`，device_info 1 条，proto 0x20，CRC 匹配；`fit_qa` PASS、FAIL=0。
+- **高驰→佳明**：`python rebrand_device.py <高驰源.fit> <佳明参考.fit> <出.fit>`（参考文件任取一个原生佳明活动，仅借用其 file_id+device_info 字节）→ 产物 `garmin/fenix8`，运动数据原样保留。
+- 两命令均**单次 EXIT=0**，无需重试；产物均过 `fit_qa`（FAIL=0）。换皮只换设备身份，差异与限制见上方「关键认知」红字。
 
 ## 端到端工作流
 ### A：高驰分段 → 回传 COROS（保真）
@@ -147,6 +170,11 @@ seg1,seg2(佳明) ──→ merge_fixed.mjs (段间重定基线 + 每km精确边
 
 约束：源固有怪癖只 WARN，绝不篡改设备原始输出；每发现新常识错误往 `fit_qa.py` 加 T 用例；时间/身份类 bug 必须带原始段跑交叉校验（`fit_qa.py merged.fit seg1.fit seg2.fit`）才能证明对。
 
+**T08 源固有判 FAIL 的处理（重要）**
+- 高驰/佳明**原生**活动常带大量自动计圈（如 Garmin fenix8 一次 39 圈），T08 会把这些圈全部判成「短圈」→ FAIL。但 `Σlap 距离 == session 总距` 完全吻合，是设备原生输出，与任何注入/合并无关。
+- **裁定方法**：对同一源文件单独跑一次 `fit_qa.py 源.fit`。若源本身也 FAIL T08，则产物的 FAIL 是继承源固有，不是本次修改引入 → 不修、不 tamper，按铁律保留设备原始圈结构。本例 `641306693_ACTIVITY.fit` 源即 FAIL T08，注入后同样 FAIL，结论一致。
+- 反之若源 PASS、产物 FAIL，才是真 bug，必须查。
+
 ## 脚本索引
 | 脚本 | 用途 | 路线/状态 |
 |------|------|-----------|
@@ -195,8 +223,31 @@ seg1,seg2(佳明) ──→ merge_fixed.mjs (段间重定基线 + 每km精确边
 - `references/exp_20260720.md` — 早期实战记录
 - `references/profiles/` — 入库规范：`coros_apex4.{md,json}`、`garmin_fenix8.{md,json}`（含公开型号，无序列号）
 
-## 环境
+## 环境（Python / Node 运行前必读，本机已踩过全套坑）
+
+### Python 侧（fitdecode / fitparse）
 ```bash
-pip install fitdecode fitparse   # Python 侧
-npm install @garmin/fitsdk       # Node 侧（已随 skill 安装）
+# 优先用受管 venv（若存在）：
+#   C:\Users\njzy\.workbuddy\binaries\python\envs\fitmerge\bin\python.exe
+# 若该 venv 不存在（本机 2026-09 已失效），回退系统 Python：
+C:/Python314/python.exe -m pip install --no-cache-dir --index-url https://pypi.org/simple fitdecode fitparse
+# 注意：tuna 等国内镜像常返回 403，必须显式 --index-url https://pypi.org/simple
+```
+- 跑脚本一律用**绝对路径**：`C:/Python314/python.exe <脚本绝对路径>`（受管 venv 的 python 同理）。
+- **本机 Bash 工具 PATH 已坏**：`ls / find / head / mkdir / cat` 等都会 `command not found`，但**绝对路径二进制能正常执行**。
+  → 文件系统操作（建目录/列文件/移动）改用 **PowerShell**（`New-Item` / `Get-ChildItem` / `Move-Item`）；
+  → Python 执行用 Bash 但只调绝对路径二进制，输出重定向到文件再用 Read 读取（PowerShell 的 stdout 在本环境不回显，务必 `2>&1 | Out-File` 或在脚本内 `open().write()` 落盘再读）。
+
+### 🔴 致命坑：脚本千万别命名 `inspect.py`
+- 标准库 `inspect` 被 `dataclasses` 间接 import；若工作目录有同名 `inspect.py`，Python 启动即崩且**无任何 traceback**（退出码 1，沉默死，极难定位）。
+- 所有调试/体检脚本避开此名（用 `fit_inspect.py` / `diag_*.py` / `probe.py` 等）。本会话临时目录里的 `inspect.py` 已改名 `inspect_old.py`。
+
+### fitdecode 0.11.0 API 差异
+- **没有** `mesg_type.is_definition` 属性。区分 definition / data 消息用：
+  `if isinstance(m, fitdecode.FitDataMessage):` （data 消息） vs 否则（definition 消息）。
+- 读字段用 `m.get_value("field")`，包在 try/except 里（缺失字段返回 None，不要假设字段一定存在）。
+
+### Node 侧（@garmin/fitsdk，已随 skill 安装）
+```bash
+npm install @garmin/fitsdk
 ```
