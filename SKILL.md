@@ -91,7 +91,7 @@ agent_created: true
 - **C 华为 JSON→高驰/佳明**：`huawei_convert.py`（默认 FIT）。
 - **D 佳明分段→每km重切圈→改高驰→回传 COROS**：`merge_fixed.mjs` → `inject_coros.py apply --device apex4`(proto 0x20) → `fit_qa.py`。
 - **E 跨品牌互转（规范驱动）**：`fit_convert_by_template.py --to <规范>` → 门禁 → 全维度比对 → SDK 验证 → 交付。
-- **换皮双方向一步到位**：高驰→佳明 `rebrand_device.py <高驰源> <佳明参考> <出>`；佳明→高驰 `inject_coros.py apply`。均单命令 EXIT=0、`fit_qa` PASS。
+- **换皮双方向一步到位**：高驰→佳明 `rebrand_device.py <高驰源> <佳明参考> <出>`；佳明→高驰 `inject_coros.py apply`。均单命令 EXIT=0、输出经 fitdecode 严格解析 PASS 且 record/lap/session 条数守恒（设备身份正确替换）。
 
 ## QA 工作流（生成/修改 FIT 强制）
 
