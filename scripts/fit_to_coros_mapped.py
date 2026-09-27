@@ -6,7 +6,7 @@
   - 本脚本    直接用高驰的字段定义自己拼字节 -> lap/session/device_info 严格 24/24/3 字段
 
 数据来源：源 FIT 的 record / lap / session / event（按字段号读取）。
-字段映射：见 references/format_spec_garmin_vs_coros.md。
+字段映射：见 references/cross_conversion.md（及 garmin_specifics.md / coros_specifics.md）。
 
 用法：
   python fit_to_coros_mapped.py 输入.fit 输出.fit
