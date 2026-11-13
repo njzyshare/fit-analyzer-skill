@@ -1,0 +1,1135 @@
+{
+ "name": "coros_apex4",
+ "device_note": "COROS APEX 4 42mm",
+ "header": {
+  "protocol_version": 32,
+  "profile_version": 21158,
+  "header_size": 14
+ },
+ "message_order": [
+  0,
+  207,
+  23,
+  34,
+  21,
+  20,
+  206,
+  19,
+  18
+ ],
+ "messages": {
+  "0": {
+   "name": "fileId",
+   "layouts": [
+    {
+     "local": 0,
+     "fields": [
+      [
+       0,
+       1,
+       0
+      ],
+      [
+       1,
+       2,
+       132
+      ],
+      [
+       4,
+       4,
+       134
+      ],
+      [
+       2,
+       2,
+       132
+      ],
+      [
+       8,
+       18,
+       7
+      ]
+     ],
+     "dev_fields": []
+    }
+   ],
+   "layout_rhythm": [
+    [
+     0,
+     1
+    ]
+   ],
+   "field_names": {
+    "0": "type",
+    "1": "manufacturer",
+    "4": "timeCreated",
+    "2": "product",
+    "8": "productName"
+   }
+  },
+  "207": {
+   "name": "developerDataId",
+   "layouts": [
+    {
+     "local": 3,
+     "fields": [
+      [
+       2,
+       2,
+       132
+      ],
+      [
+       3,
+       1,
+       2
+      ],
+      [
+       1,
+       16,
+       13
+      ]
+     ],
+     "dev_fields": []
+    }
+   ],
+   "layout_rhythm": [
+    [
+     0,
+     1
+    ]
+   ],
+   "field_names": {
+    "2": "manufacturerId",
+    "3": "developerDataIndex",
+    "1": "applicationId"
+   }
+  },
+  "23": {
+   "name": "deviceInfo",
+   "layouts": [
+    {
+     "local": 4,
+     "fields": [
+      [
+       253,
+       4,
+       134
+      ],
+      [
+       2,
+       2,
+       132
+      ],
+      [
+       27,
+       18,
+       7
+      ]
+     ],
+     "dev_fields": []
+    }
+   ],
+   "layout_rhythm": [
+    [
+     0,
+     1
+    ]
+   ],
+   "field_names": {
+    "253": "timestamp",
+    "2": "manufacturer",
+    "27": "productName"
+   }
+  },
+  "34": {
+   "name": "activity",
+   "layouts": [
+    {
+     "local": 1,
+     "fields": [
+      [
+       253,
+       4,
+       134
+      ],
+      [
+       0,
+       4,
+       134
+      ],
+      [
+       5,
+       4,
+       134
+      ],
+      [
+       1,
+       2,
+       132
+      ],
+      [
+       2,
+       1,
+       0
+      ],
+      [
+       3,
+       1,
+       0
+      ],
+      [
+       4,
+       1,
+       0
+      ]
+     ],
+     "dev_fields": []
+    }
+   ],
+   "layout_rhythm": [
+    [
+     0,
+     1
+    ]
+   ],
+   "field_names": {
+    "253": "timestamp",
+    "0": "totalTimerTime",
+    "5": "localTimestamp",
+    "1": "numSessions",
+    "2": "type",
+    "3": "event",
+    "4": "eventType"
+   }
+  },
+  "21": {
+   "name": "event",
+   "layouts": [
+    {
+     "local": 10,
+     "fields": [
+      [
+       253,
+       4,
+       134
+      ],
+      [
+       0,
+       1,
+       0
+      ],
+      [
+       1,
+       1,
+       0
+      ],
+      [
+       4,
+       1,
+       2
+      ]
+     ],
+     "dev_fields": []
+    },
+    {
+     "local": 10,
+     "fields": [
+      [
+       253,
+       4,
+       134
+      ],
+      [
+       0,
+       1,
+       0
+      ],
+      [
+       1,
+       1,
+       0
+      ],
+      [
+       4,
+       1,
+       2
+      ],
+      [
+       3,
+       1,
+       134
+      ]
+     ],
+     "dev_fields": []
+    }
+   ],
+   "layout_rhythm": [
+    [
+     0,
+     2
+    ],
+    [
+     1,
+     44
+    ]
+   ],
+   "field_names": {
+    "253": "timestamp",
+    "0": "event",
+    "1": "eventType",
+    "4": "eventGroup",
+    "3": "data"
+   }
+  },
+  "20": {
+   "name": "record",
+   "layouts": [
+    {
+     "local": 9,
+     "fields": [
+      [
+       42,
+       1,
+       0
+      ],
+      [
+       253,
+       4,
+       134
+      ],
+      [
+       5,
+       4,
+       134
+      ]
+     ],
+     "dev_fields": []
+    },
+    {
+     "local": 9,
+     "fields": [
+      [
+       42,
+       1,
+       0
+      ],
+      [
+       253,
+       4,
+       134
+      ],
+      [
+       0,
+       4,
+       133
+      ],
+      [
+       1,
+       4,
+       133
+      ],
+      [
+       5,
+       4,
+       134
+      ],
+      [
+       3,
+       1,
+       2
+      ]
+     ],
+     "dev_fields": []
+    },
+    {
+     "local": 9,
+     "fields": [
+      [
+       42,
+       1,
+       0
+      ],
+      [
+       253,
+       4,
+       134
+      ],
+      [
+       0,
+       4,
+       133
+      ],
+      [
+       1,
+       4,
+       133
+      ],
+      [
+       5,
+       4,
+       134
+      ],
+      [
+       3,
+       1,
+       2
+      ],
+      [
+       6,
+       2,
+       132
+      ],
+      [
+       41,
+       2,
+       132
+      ],
+      [
+       39,
+       2,
+       132
+      ],
+      [
+       83,
+       2,
+       132
+      ]
+     ],
+     "dev_fields": [
+      [
+       16,
+       4,
+       0
+      ]
+     ]
+    },
+    {
+     "local": 9,
+     "fields": [
+      [
+       42,
+       1,
+       0
+      ],
+      [
+       253,
+       4,
+       134
+      ],
+      [
+       0,
+       4,
+       133
+      ],
+      [
+       1,
+       4,
+       133
+      ],
+      [
+       5,
+       4,
+       134
+      ],
+      [
+       3,
+       1,
+       2
+      ],
+      [
+       2,
+       2,
+       132
+      ],
+      [
+       6,
+       2,
+       132
+      ],
+      [
+       41,
+       2,
+       132
+      ],
+      [
+       39,
+       2,
+       132
+      ],
+      [
+       83,
+       2,
+       132
+      ]
+     ],
+     "dev_fields": [
+      [
+       16,
+       4,
+       0
+      ]
+     ]
+    },
+    {
+     "local": 9,
+     "fields": [
+      [
+       42,
+       1,
+       0
+      ],
+      [
+       253,
+       4,
+       134
+      ],
+      [
+       0,
+       4,
+       133
+      ],
+      [
+       1,
+       4,
+       133
+      ],
+      [
+       5,
+       4,
+       134
+      ],
+      [
+       3,
+       1,
+       2
+      ],
+      [
+       2,
+       2,
+       132
+      ],
+      [
+       6,
+       2,
+       132
+      ],
+      [
+       7,
+       2,
+       132
+      ],
+      [
+       29,
+       4,
+       134
+      ],
+      [
+       41,
+       2,
+       132
+      ],
+      [
+       39,
+       2,
+       132
+      ],
+      [
+       83,
+       2,
+       132
+      ],
+      [
+       85,
+       2,
+       132
+      ]
+     ],
+     "dev_fields": [
+      [
+       16,
+       4,
+       0
+      ]
+     ]
+    },
+    {
+     "local": 9,
+     "fields": [
+      [
+       42,
+       1,
+       0
+      ],
+      [
+       253,
+       4,
+       134
+      ],
+      [
+       0,
+       4,
+       133
+      ],
+      [
+       1,
+       4,
+       133
+      ],
+      [
+       5,
+       4,
+       134
+      ],
+      [
+       3,
+       1,
+       2
+      ],
+      [
+       2,
+       2,
+       132
+      ],
+      [
+       6,
+       2,
+       132
+      ],
+      [
+       4,
+       1,
+       2
+      ],
+      [
+       7,
+       2,
+       132
+      ],
+      [
+       29,
+       4,
+       134
+      ],
+      [
+       41,
+       2,
+       132
+      ],
+      [
+       39,
+       2,
+       132
+      ],
+      [
+       83,
+       2,
+       132
+      ],
+      [
+       85,
+       2,
+       132
+      ]
+     ],
+     "dev_fields": [
+      [
+       16,
+       4,
+       0
+      ]
+     ]
+    }
+   ],
+   "layout_rhythm": [
+    [
+     0,
+     1
+    ],
+    [
+     1,
+     2
+    ],
+    [
+     2,
+     2
+    ],
+    [
+     3,
+     2
+    ],
+    [
+     4,
+     2
+    ],
+    [
+     5,
+     10545
+    ]
+   ],
+   "field_names": {
+    "42": "activityType",
+    "253": "timestamp",
+    "5": "distance",
+    "0": "positionLat",
+    "1": "positionLong",
+    "3": "heartRate",
+    "6": "speed",
+    "41": "stanceTime",
+    "39": "verticalOscillation",
+    "83": "verticalRatio",
+    "2": "altitude",
+    "7": "power",
+    "29": "accumulatedPower",
+    "85": "stepLength",
+    "4": "cadence"
+   }
+  },
+  "206": {
+   "name": "fieldDescription",
+   "layouts": [
+    {
+     "local": 0,
+     "fields": [
+      [
+       0,
+       1,
+       2
+      ],
+      [
+       1,
+       1,
+       2
+      ],
+      [
+       2,
+       1,
+       2
+      ],
+      [
+       3,
+       12,
+       7
+      ],
+      [
+       8,
+       4,
+       7
+      ]
+     ],
+     "dev_fields": []
+    }
+   ],
+   "layout_rhythm": [
+    [
+     0,
+     2
+    ]
+   ],
+   "field_names": {
+    "0": "developerDataIndex",
+    "1": "fieldDefinitionNumber",
+    "2": "fitBaseTypeId",
+    "3": "fieldName",
+    "8": "units"
+   }
+  },
+  "19": {
+   "name": "lap",
+   "layouts": [
+    {
+     "local": 7,
+     "fields": [
+      [
+       254,
+       2,
+       132
+      ],
+      [
+       253,
+       4,
+       134
+      ],
+      [
+       2,
+       4,
+       134
+      ],
+      [
+       8,
+       4,
+       134
+      ],
+      [
+       7,
+       4,
+       134
+      ],
+      [
+       9,
+       4,
+       134
+      ],
+      [
+       11,
+       2,
+       132
+      ],
+      [
+       25,
+       1,
+       0
+      ],
+      [
+       16,
+       1,
+       2
+      ],
+      [
+       63,
+       1,
+       2
+      ],
+      [
+       15,
+       1,
+       2
+      ],
+      [
+       50,
+       1,
+       1
+      ],
+      [
+       14,
+       2,
+       132
+      ],
+      [
+       13,
+       2,
+       132
+      ],
+      [
+       17,
+       1,
+       2
+      ],
+      [
+       120,
+       2,
+       132
+      ],
+      [
+       18,
+       1,
+       2
+      ],
+      [
+       22,
+       2,
+       132
+      ],
+      [
+       21,
+       2,
+       132
+      ],
+      [
+       19,
+       2,
+       132
+      ],
+      [
+       79,
+       2,
+       132
+      ],
+      [
+       78,
+       2,
+       132
+      ],
+      [
+       77,
+       2,
+       132
+      ],
+      [
+       118,
+       2,
+       132
+      ]
+     ],
+     "dev_fields": [
+      [
+       16,
+       4,
+       0
+      ]
+     ]
+    }
+   ],
+   "layout_rhythm": [
+    [
+     0,
+     31
+    ]
+   ],
+   "field_names": {
+    "254": "messageIndex",
+    "253": "timestamp",
+    "2": "startTime",
+    "8": "totalTimerTime",
+    "7": "totalElapsedTime",
+    "9": "totalDistance",
+    "11": "totalCalories",
+    "25": "sport",
+    "16": "maxHeartRate",
+    "63": "minHeartRate",
+    "15": "avgHeartRate",
+    "50": "avgTemperature",
+    "14": "maxSpeed",
+    "13": "avgSpeed",
+    "17": "avgCadence",
+    "120": "avgStepLength",
+    "18": "maxCadence",
+    "22": "totalDescent",
+    "21": "totalAscent",
+    "19": "avgPower",
+    "79": "avgStanceTime",
+    "78": "avgStanceTimePercent",
+    "77": "avgVerticalOscillation",
+    "118": "avgVerticalRatio"
+   }
+  },
+  "18": {
+   "name": "session",
+   "layouts": [
+    {
+     "local": 2,
+     "fields": [
+      [
+       5,
+       1,
+       0
+      ],
+      [
+       2,
+       4,
+       134
+      ],
+      [
+       253,
+       4,
+       134
+      ],
+      [
+       7,
+       4,
+       134
+      ],
+      [
+       8,
+       4,
+       134
+      ],
+      [
+       9,
+       4,
+       134
+      ],
+      [
+       11,
+       2,
+       132
+      ],
+      [
+       17,
+       1,
+       2
+      ],
+      [
+       64,
+       1,
+       2
+      ],
+      [
+       16,
+       1,
+       2
+      ],
+      [
+       57,
+       1,
+       1
+      ],
+      [
+       22,
+       2,
+       132
+      ],
+      [
+       23,
+       2,
+       132
+      ],
+      [
+       10,
+       4,
+       134
+      ],
+      [
+       19,
+       1,
+       2
+      ],
+      [
+       18,
+       1,
+       2
+      ],
+      [
+       134,
+       2,
+       132
+      ],
+      [
+       15,
+       2,
+       132
+      ],
+      [
+       14,
+       2,
+       132
+      ],
+      [
+       20,
+       2,
+       132
+      ],
+      [
+       91,
+       2,
+       132
+      ],
+      [
+       133,
+       2,
+       132
+      ],
+      [
+       89,
+       2,
+       132
+      ],
+      [
+       132,
+       2,
+       132
+      ]
+     ],
+     "dev_fields": [
+      [
+       16,
+       4,
+       0
+      ]
+     ]
+    }
+   ],
+   "layout_rhythm": [
+    [
+     0,
+     1
+    ]
+   ],
+   "field_names": {
+    "5": "sport",
+    "2": "startTime",
+    "253": "timestamp",
+    "7": "totalElapsedTime",
+    "8": "totalTimerTime",
+    "9": "totalDistance",
+    "11": "totalCalories",
+    "17": "maxHeartRate",
+    "64": "minHeartRate",
+    "16": "avgHeartRate",
+    "57": "avgTemperature",
+    "22": "totalAscent",
+    "23": "totalDescent",
+    "10": "totalCycles",
+    "19": "maxCadence",
+    "18": "avgCadence",
+    "134": "avgStepLength",
+    "15": "maxSpeed",
+    "14": "avgSpeed",
+    "20": "avgPower",
+    "91": "avgStanceTime",
+    "133": "avgStanceTimeBalance",
+    "89": "avgVerticalOscillation",
+    "132": "avgVerticalRatio"
+   }
+  }
+ },
+ "developer_data": [
+  {
+   "local": 0,
+   "developerDataIndex": 0,
+   "fieldDefinitionNumber": 16,
+   "fitBaseTypeId": 136,
+   "fieldName": "Effort Pace",
+   "units": "m/s"
+  },
+  {
+   "local": 8,
+   "developerDataIndex": 0,
+   "fieldDefinitionNumber": 16,
+   "fitBaseTypeId": 136,
+   "fieldName": "Effort Pace",
+   "units": "m/s"
+  }
+ ],
+ "identity": {
+  "type": 4,
+  "manufacturer": 294,
+  "product": 814,
+  "productName": "COROS APEX 4 42mm",
+  "device_info_count": 1
+ },
+ "uses_compressed_timestamp": false,
+ "developer_data_id": [
+  {
+   "local": 3,
+   "applicationId_hex": "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 47",
+   "manufacturerId": 294,
+   "developerDataIndex": 0
+  }
+ ],
+ "dev_semantics": {
+  "19": {
+   "16": {
+    "std_field": 13,
+    "std_name": "avgSpeed",
+    "confidence": "weak",
+    "median_diff": 0.172
+   }
+  },
+  "20": {
+   "16": {
+    "std_field": 6,
+    "std_name": "speed",
+    "confidence": "approx",
+    "median_diff": 0.154
+   }
+  },
+  "18": {
+   "16": {
+    "std_field": 14,
+    "std_name": "avgSpeed",
+    "confidence": "weak",
+    "median_diff": 0.154
+   }
+  }
+ }
+}

@@ -2,3 +2,11 @@
 __pycache__/
 node_modules/
 package-lock.json
+
+# 回归样本与临时产物
+_work/
+
+
+# 模板 = 从个人真机文件学出的产物（含设备身份），不入公开仓库
+# 使用者用 fit_learn_template.py 从自己的设备现学即可
+references/templates/
