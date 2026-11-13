@@ -1,107 +1,87 @@
 # 运动记录 FIT 分析器
 
-通用运动 FIT 记录分析/修改工具集，覆盖佳明、高驰、颂拓、Polar、华为等品牌 .fit 文件。
+通用运动 FIT 记录分析/修改工具集，覆盖佳明、高驰、颂拓、Polar、华为等所有产出 `.fit` 的设备。
 
-## 作用
-- 合并分段活动（高驰保真 / 佳明 Connect 兼容）
-- 注入真实设备信息（佳明防重算爬升 / 高驰防未知设备），运动数据 100% 保留
-- 设备身份互逆替换（Fenix8↔COROS 字节级）
-- **佳明换皮成高驰** —— 唯一正确路径，能救回「最快1KM」（见下方专章）
-- 华为 JSON → FIT/GPX/TCX
-- FIT 预览、时间戳平移、协议字节修复、官方 SDK 重建、TCX 兜底
-- 跨品牌互转（佳明↔高驰，规范驱动 + 双关卡门禁）
-- **高驰 MCP 数据采集**（运动/睡眠/恢复/训练负荷，约 40 接口）
+## 能力
+
+| 能力 | 命令 |
+|---|---|
+| 佳明 → 高驰（规范重建）| `fit_convert_by_template.py in.fit out.fit --to coros_apex4` |
+| 高驰 → 佳明（规范重建）| `fit_convert_by_template.py in.fit out.fit --to garmin_fenix8` |
+| 华为 → FIT / GPX / TCX | `huawei_convert.py 导出.json [--format gpx\|tcx\|all]` |
+| 华为 → 批量按类型输出 | `huawei_batch_convert.py 导出.json -o ./out` |
+| 任意 → TCX（兜底）| `fit_to_tcx.py in.fit -o out.tcx` |
+| 换高驰设备身份（字节级）| `inject_coros.py apply` |
+| 注入真实佳明设备（防重算爬升）| `inject_garmin_device.mjs apply` |
+| 设备身份互逆换皮 | `rebrand_device.py <src> <ref> <out>` |
+| 合并分段（高驰，保留源生 lap）| `merge_preserve.mjs` |
+| 合并分段（佳明 Connect）| `merge_fixed.mjs` |
+| 合并分段（字节级）| `fit_merge.py` 高驰✅ 佳明❌ |
+| FIT 预览（HTML，地图+计圈）| `fit_preview.py 活动.fit` |
+| 时间戳平移（SDK 保真）| `shift_time_sdk.mjs in.fit out.fit -12` |
+| 协议字节修复（COROS 0x20）| `fix_proto.py in.fit out.fit` |
+| FIT 体检 / QA | `fit_healthcheck.py` / `fit_qa.py` |
+| 官方 SDK 重建 | `fit_rebuild_sdk.py` |
+| 新设备学规范 | `fit_learn_template.py 真机.fit --name X` → `fit_distill_spec.py X` |
+| 高驰 MCP 取数 | 见 [`references/coros_mcp.md`](references/coros_mcp.md) |
+
+跨品牌互转两个方向都过 11 节规范门禁 + 全维度比对，数据保真（速度/海拔逐点差 0.00000）。
+**换新型号只需换 `--to` 后的规范名，不改代码。**
 
 ## 环境
+
 ```bash
 pip install fitdecode fitparse && npm install @garmin/fitsdk
 ```
 
 ## 快速开始
-```bash
-node scripts/merge_preserve.mjs            # 合并高驰分段（保留源生 lap）
-node scripts/merge_fixed.mjs               # 合并佳明分段
-python scripts/huawei_convert.py 导出.json  # 华为 → FIT
-python scripts/fit_preview.py 活动.fit      # 生成 HTML 预览
-node scripts/shift_time_sdk.mjs in.fit out.fit -12  # 时间平移（负=往前）
-```
-
-## 佳明换皮成高驰
-
-把佳明记录改成高驰身份上传，**不是改个厂商名就行**。
-
-### 核心结论
-
-> **换皮能影响的数据只有「最快1KM」。**
-> 设备型号显示、等强配速属高驰服务端/硬件侧判定，**FIT 文件改不出来**。
-> 评估换皮是否成功，只看最快1KM 出没出。
-
-### 决定性因素：record 骨架，不是字段齐不齐
-
-| 做法 | 消息种类 | `unknown_*` | 最快1KM | 判定 |
-|---|---|---|---|---|
-| 只改 `file_id` / `device_info` | 35~37 | 11~12 个 | ❌ | **伪换皮** |
-| 规范重建记录体 | 9~12 | **0** | ✅ | **真换皮** |
-
-**为什么**：高驰按自己的定义去读 record 的逐点距离流。佳明布局原样搬过来时
-字段号/字节长度/类型码全对不上，**速度列读出来是空的** → 不报错、静默跳过派生。
-且一次性入库不重试，所以「上传那一刻就定死」。
-
-**已证否**（别再查）：dev16、`max_speed`、`field_description`、lap 按 1km 切 —— 全都不是必要条件。
-次要条件：必须有 `lap` 消息（骨架干净但 `lap=0` 也失败）。
-
-### 正确做法
 
 ```bash
+# 佳明 → 高驰（含门禁与比对，三步走）
 python scripts/fit_convert_by_template.py 佳明.fit 高驰.fit --to coros_apex4
 python scripts/fit_conformance_check.py 高驰.fit --temp coros_apex4 --src 佳明.fit
-python scripts/fit_diff_vs_template.py 高驰.fit --temp coros_apex4 --src 佳明.fit
+python scripts/fit_diff_vs_template.py  高驰.fit --temp coros_apex4 --src 佳明.fit
+
+# 高驰 → 佳明（同一套流程，换规范名）
+python scripts/fit_convert_by_template.py 高驰.fit 佳明.fit --to garmin_fenix8
+
+# 华为 → FIT
+python scripts/huawei_convert.py 导出.json
+
+# 合并分段 / 预览 / 平移
+node scripts/merge_preserve.mjs
+python scripts/fit_preview.py 活动.fit
+node scripts/shift_time_sdk.mjs in.fit out.fit -12
 ```
 
-### 自查清单
+## 换皮：只改身份 vs 规范重建
 
-| 指标 | 成功 | 失败特征 |
-|---|---|---|
-| `file_id.manufacturer` | `coros` | `garmin` = 根本没换皮 |
-| `file_id.product` | 具体型号（814/808）| `899` = 通用占位 |
-| record `unknown_*` | **0** | ≥11 = 佳明布局残留 |
-| 消息种类 | 9~12 | 35~37 = 没重建 |
-| `gps_metadata`/`split` | 不应存在 | 存在 = 佳明专有消息残留 |
+最容易踩的坑，单独说清。
 
-### 最快1KM 怎么核对
+| 做法 | 消息种类 | `unknown_*` | 高驰「最快1KM」 |
+|---|---|---|---|
+| 只改 `file_id`/`device_info`（`inject_coros.py`）| 35~37 | 11~12 个 | ❌ 不出 |
+| 规范重建（`fit_convert_by_template.py`）| 9~12 | **0** | ✅ 出 |
 
-**它不等于 lap 里最快那一圈**，而是 record 距离流按 **1000m 滑动窗口**取最短用时。
-用 lap 最快值会差 10~20 秒。
+**原因**：高驰按自身定义读 record 的逐点距离流。佳明布局原样搬过去时，
+字段号/字节长度/类型码全对不上，**速度列读空** → 不报错、静默跳过派生，
+且一次性入库不重试（上传那刻就定死）。
 
-完整规范（含算法、平台限制证据、dev16 GAP 模型）见
-`references/coros_specifics.md` §九/§十/§十一。
+**平台限制**：设备型号显示、等强配速改不出来（服务端靠真机序列号/固件校验）。
+→ **评估换皮是否成功，只看「最快1KM」出没出。**
 
-## 高驰 MCP
+细节见 [`references/coros_specifics.md`](references/coros_specifics.md) §九~§十一。
 
-高驰官方 MCP，HTTP 流式传输、无需 API Key。配置 `~/.workbuddy/mcp.json`：
+## 文档索引
 
-```json
-{
-  "mcpServers": {
-    "coros-mcp": { "url": "https://mcp.coros.com/mcp", "transport": "http-stream", "disabled": false }
-  }
-}
-```
+| 文档 | 内容 |
+|---|---|
+| [`references/fit_format_spec.md`](references/fit_format_spec.md) | FIT 格式通用规范（头/CRC/类型码/scale/开发者字段）|
+| [`references/coros_specifics.md`](references/coros_specifics.md) | 高驰分支：白名单消息、渐进布局、Effort Pace、最快1KM、平台限制 |
+| [`references/garmin_specifics.md`](references/garmin_specifics.md) | 佳明分支：私有消息、device_info 21 条、Connect 校验 |
+| [`references/cross_conversion.md`](references/cross_conversion.md) | 双向互转对照与差异处理 |
+| [`references/coros_mcp.md`](references/coros_mcp.md) | 高驰 MCP 部署与取数口径 |
+| [`references/华为转换.md`](references/华为转换.md) | 华为 JSON → FIT/GPX/TCX |
+| `合并与重建.md` `设备注入与身份.md` `协议与时间戳.md` `规范驱动互转.md` | 细分铁律 |
 
-写入后需到连接器管理页右上角「自定义连接器」点「信任」才生效。
-
-能力：运动记录/详情/分段、训练负荷、恢复状态、睡眠（含 HRV）、静息心率、压力、
-每日健康数据、设备列表、活动 FIT 下载、训练计划读写。
-
-🔴 **取不到活动级设备型号**：`getActivityDetail` 只返回配速/心率/步频/功率/爬升等指标，
-**没有任何设备字段**。要知道某条活动是哪台表跑的，只能读 FIT 的 `device_info`。
-详见 `references/coros_mcp.md`。
-
-## 跨品牌互转
-```bash
-python scripts/fit_convert_by_template.py 输入.fit 输出.fit --to coros_apex4
-python scripts/fit_conformance_check.py 输出.fit --temp coros_apex4 --src 输入.fit
-python scripts/fit_diff_vs_template.py 输出.fit --temp coros_apex4 --src 输入.fit
-```
-
-字段含义一律以 `references/fit_profile_official.json` 为准，完整规则见 `SKILL.md`。
+字段含义一律以 `references/fit_profile_official.json` 为准，完整规则与铁律见 `SKILL.md`。
