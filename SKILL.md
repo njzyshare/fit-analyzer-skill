@@ -1,7 +1,7 @@
 ---
 name: 运动记录fit分析器
 description: "通用运动 FIT 记录分析/修改工具集。覆盖佳明/高驰/颂拓/华为等品牌 .fit 文件。已落地：合并分段活动、FIT 体检、官方 SDK 重建、华为JSON→FIT/GPX/TCX、时间戳平移、FIT 预览、注入真实佳明设备信息防 Connect 重算爬升。支持 protocol=2 核心消息+设备信息注入。触发词：'合并fit'、'分析fit'、'体检fit'、'导出tcx'、'改时间'、'华为转换'、'预览fit'、'注入佳明设备'、'防重算爬升'。"
-version: 3.4.0
+version: 3.5.0
 agent_created: true
 ---
 
@@ -18,7 +18,8 @@ agent_created: true
 | **FIT 预览** | **`fit_preview.py input.fit`** | **生成交互HTML，含地图+数据+计圈** |
 | 体检 | `fit_healthcheck.py` | 上传前验证 |
 | 导出TCX | `fit_to_tcx.py` | FIT→TCX兜底 |
-| 改时间 | `fit_shift_time.py` | 平移时间戳 |
+| 改时间 | `fit_shift_time.py` | 字节级平移时间戳（原始/合并文件） |
+| 改时间（SDK 保真版） | `shift_time_sdk.mjs` | SDK 解码→平移→重编码，保真保留设备信息+私有字段；处理压缩时间戳消息 |
 | **注入佳明设备（防 Connect 重算爬升）** | **`inject_garmin_device.mjs`** | **第三方手表文件 → 真实佳明设备身份** |
 
 ## 环境
@@ -53,8 +54,13 @@ python scripts/fit_preview.py input.fit -o preview.html
 # TCX 导出（上传兜底）
 python scripts/fit_to_tcx.py merged.fit -o merged.tcx
 
-# 时间戳平移
+# 时间戳平移（字节级，原始/简单合并文件）
 python scripts/fit_shift_time.py input.fit --delta-hours -12
+
+# 时间戳平移（SDK 重编码版，保真：适配含压缩时间戳消息的文件，
+# 且保留已注入的佳明设备信息 + 第三方私有开发者字段）
+# 用法：node 脚本 输入.fit 输出.fit <小时>  （小时为负=往前）
+node scripts/shift_time_sdk.mjs input.fit output.fit -12
 
 # 官方 SDK 重建
 python scripts/fit_rebuild_sdk.py merged.fit -o rebuilt.fit
@@ -114,7 +120,8 @@ node scripts/inject_garmin_device.mjs apply 高驰.fit --device fenix8 --out 高
 | `fit_healthcheck.py` | 语义体检（时间/距离单调性、字段完整性） | 通用 |
 | `fit_preview.py` | **FIT → 交互式 HTML 预览（地图+Session+全字段+计圈）** | **通用，浏览器打开** |
 | `fit_to_tcx.py` | FIT → TCX 导出 | 上传兜底 |
-| `fit_shift_time.py` | 平移时间戳 | 规避去重 |
+| `fit_shift_time.py` | 平移时间戳 | 规避去重（字节级，原始/简单文件） |
+| **`shift_time_sdk.mjs`** | **SDK 解码→平移 timestamp→重编码，保真保留全部数据** | **适配含压缩时间戳消息的 SDK 重编码文件（如 inject 产出的 *_fenix8.fit）；依赖 @garmin/fitsdk** |
 | `fit_rebuild_sdk.py` | 官方 Garmin SDK 重建 | 丢弃私有消息 |
 | `huawei_convert.py` | **华为 JSON → FIT/GPX/TCX（默认 FIT）** | **华为 → 高驰/佳明 ✅** |
 | **`huawei_batch_convert.py`** | **批量华为 JSON → 按类型分目录输出 FIT** | **华为全量数据 → 高驰/佳明 ✅** |
@@ -236,6 +243,13 @@ python scripts/fit_preview.py input.fit -o my_activity.html
   - 写 devDataId/fieldDescription 时需 `delete o.key`（key 是 decode 加的伪字段）。
   - 脚本：`scripts/inject_garmin_device.mjs`（依赖 @garmin/fitsdk，已在 skill 目录 `npm install`）。
 - **验证**：`checkIntegrity()=true`、device_info 仅一条佳明、爬升原值保留。
+
+### 8. 字节级时间戳平移脚本在 SDK 重编码文件上会 desync（2026-08-01）
+- **现象**：`fit_shift_time.py`（字节级定点修补）对 `inject_garmin_device.mjs` 产出的 SDK 重编码文件报「数据消息缺少定义 local=N」、偏移错位。
+- **根因**：SDK 重编码产物含**压缩时间戳消息**（record/event 的 timestamp 字段 header bit7 置位，引用前面定义的 local 号）。字节级脚本按固定字段布局改写时间戳，遇到压缩消息时消息定义索引对不上 → desync。
+- **解法**：用 `scripts/shift_time_sdk.mjs` 走 `@garmin/fitsdk` 解码→平移所有 Date 字段（timestamp/timeCreated/startTime）→重编码。保真且可靠，且天然保留 fenix8 设备信息、爬升原值、第三方私有开发者字段。
+- **用法**：`node scripts/shift_time_sdk.mjs 输入.fit 输出.fit -12`（最后参数=小时，负=往前；不写输出默认 `<原名>_morning.fit`）。
+- **经验**：凡是对「经 SDK 重编码（含 inject/merge_fixed 产物）」的文件做时间平移，一律用 SDK 版，不要字节级脚本。
 
 ## 工作流
 
