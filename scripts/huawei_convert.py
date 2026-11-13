@@ -678,9 +678,8 @@ def export_fit(single_obj, gps_points, hr_points, cadence_points, alti_points,
             'sport': fit_sport if fit_sport in ('running', 'cycling', 'walking', 'swimming') else 'other',
             'subSport': 'generic',
         },
-        'manufacturer': 1,
-        'product': 1,
-        'productName': 'huawei',
+        'manufacturer': 0xFF,  # development（华为未注册 ANT+ manufacturer ID）
+        'product': 0,
     }
 
     # 找 fit_encode.mjs
@@ -1052,8 +1051,11 @@ def main():
     else:
         print("\n[错误] 转换失败，请检查文件格式后重试。")
 
-    if sys.platform == 'win32':
-        input("\n按 Enter 键退出...")
+    if sys.platform == 'win32' and sys.stdin.isatty():
+        try:
+            input("\n按 Enter 键退出...")
+        except EOFError:
+            pass
 
 
 if __name__ == '__main__':
