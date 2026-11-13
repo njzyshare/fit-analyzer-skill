@@ -1,0 +1,16 @@
+{
+  "name": "coros_apex4",
+  "device_note": "COROS APEX 4 42mm",
+  "identity": {
+    "manufacturer": "coros",
+    "manufacturer_id": 294,
+    "product": 814,
+    "productName": "COROS APEX 4 42mm"
+  },
+  "raw_identity": {
+    "fid_def_hex": "40 00 00 00 00 05 00 01 00 01 02 84 04 04 86 02 02 84 08 12 07",
+    "fid_data_hex": "00 04 26 01 E7 5B 07 45 2E 03 43 4F 52 4F 53 20 41 50 45 58 20 34 20 34 32 6D 6D 00",
+    "di_def_hex": "44 00 00 17 00 03 FD 04 86 02 02 84 1B 12 07",
+    "di_data_hex": "04 E7 5B 07 45 26 01 43 4F 52 4F 53 20 41 50 45 58 20 34 20 34 32 6D 6D 00"
+  }
+}
