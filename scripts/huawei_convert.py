@@ -3,27 +3,31 @@
 """
 ╔══════════════════════════════════════════════════════╗
 ║   华为手表 -> 高驰/佳明 运动数据一键转换工具         ║
-║   v2.0 — 修复版                                     ║
+║   v3.0 — 统一版（默认 FIT，可选 GPX/TCX）           ║
 ╚══════════════════════════════════════════════════════╝
 
 基于原 huawei_to_coros.py（已从 GitHub 删除）重构。
-修复清单（详见 references/huawei_converter_analysis.md）：
-  1. [修复] 海拔全负值 → 自动校准偏移 + 中位数修正
-  2. [修复] 缺失卡路里 → Lap 中写入 Calories
-  3. [修复] 缺失步频 → 从华为数据提取步频并写入
-  4. [修复] Sport fallback → 未识别类型默认 Running
-  5. [修复] 海拔过滤 → 华为 alt=0 表示无数据，负值表示有数据
-  6. [新增] Speed 字段写入 TCX 扩展
+输出格式：
+  - FIT（默认）: 通过 fit_encode.mjs（Node.js @garmin/fitsdk）编码
+  - GPX: 原生生成，适合导入高驰
+  - TCX: 原生生成，适合导入佳明
 
-使用方法：
-  python scripts/huawei_convert.py <华为导出.json>
+从 FIT 转其他格式请用 fit_to_gpx_tcx.py。
 
-依赖：Python 3.8+，无需第三方库
+用法：
+  python scripts/huawei_convert.py <华为导出.json>                   # 默认 FIT
+  python scripts/huawei_convert.py <华为导出.json> --format gpx      # GPX
+  python scripts/huawei_convert.py <华为导出.json> --format tcx      # TCX
+  python scripts/huawei_convert.py <华为导出.json> --format all      # 全部
+
+依赖：Python 3.8+，FIT 模式需 Node.js + @garmin/fitsdk 在 PATH 或同目录下
 """
 
 import json
+import math
 import os
 import re
+import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone, timedelta
@@ -467,11 +471,271 @@ def pretty_xml(element):
 
 
 # ============================================================
+# GCJ02 -> WGS84 坐标系转换
+# ============================================================
+
+GCJ_A = 6378245.0
+GCJ_EE = 0.00669342162296594323
+
+
+def _out_of_china(lat, lon):
+    return not (73.66 < lon < 135.05 and 3.86 < lat < 53.55)
+
+
+def _transform_lat(x, y):
+    ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * abs(x) ** 0.5
+    ret += (20.0 * math.sin(6.0 * x * math.pi) + 20.0 * math.sin(2.0 * x * math.pi)) * 2.0 / 3.0
+    ret += (20.0 * math.sin(y * math.pi) + 40.0 * math.sin(y / 3.0 * math.pi)) * 2.0 / 3.0
+    ret += (160.0 * math.sin(y / 12.0 * math.pi) + 320.0 * math.sin(y * math.pi / 30.0)) * 2.0 / 3.0
+    return ret
+
+
+def _transform_lon(x, y):
+    ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * abs(x) ** 0.5
+    ret += (20.0 * math.sin(6.0 * x * math.pi) + 20.0 * math.sin(2.0 * x * math.pi)) * 2.0 / 3.0
+    ret += (20.0 * math.sin(x * math.pi) + 40.0 * math.sin(x / 3.0 * math.pi)) * 2.0 / 3.0
+    ret += (150.0 * math.sin(x / 12.0 * math.pi) + 300.0 * math.sin(x / 30.0 * math.pi)) * 2.0 / 3.0
+    return ret
+
+
+def gcj02_to_wgs84(lat, lon):
+    """GCJ02 -> WGS84 反算转换"""
+    if _out_of_china(lat, lon):
+        return lat, lon
+    dlat = _transform_lat(lon - 105.0, lat - 35.0)
+    dlon = _transform_lon(lon - 105.0, lat - 35.0)
+    radlat = lat / 180.0 * math.pi
+    magic = math.sin(radlat)
+    magic = 1 - GCJ_EE * magic * magic
+    sqrt_magic = math.sqrt(magic)
+    mg_lat = (dlat * 180.0) / ((GCJ_A * (1 - GCJ_EE)) / (magic * sqrt_magic) * math.pi)
+    mg_lon = (dlon * 180.0) / (GCJ_A / sqrt_magic * math.cos(radlat) * math.pi)
+    return lat - mg_lat, lon - mg_lon
+
+
+# ============================================================
+# FIT 导出 — 生成中间 JSON → 调用 fit_encode.mjs
+# ============================================================
+
+def _find_fit_encoder():
+    """查找 fit_encode.mjs 路径"""
+    candidates = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fit_encode.mjs'),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'fit_encode.mjs'),
+        # 开发目录中的 fit_encode.mjs（有完整的 package.json + node_modules）
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..', '运动数据编辑工具', 'fit_encode.mjs'),
+        'fit_encode.mjs',
+    ]
+    for p in candidates:
+        resolved = os.path.abspath(p)
+        if os.path.isfile(resolved):
+            return resolved
+    return None
+
+
+def _find_node_dir(encoder_path):
+    """返回 fit_encode.mjs 所在的目录（即 package.json 所在目录）"""
+    return os.path.dirname(encoder_path)
+
+
+def export_fit(single_obj, gps_points, hr_points, cadence_points, alti_points,
+               st, start_time, dist_m, dur_ms, output_path, huawei_calories=None):
+    """将解析后的华为数据导出为 FIT 文件.
+    内部构造中间 JSON，subprocess 调用 fit_encode.mjs。
+    """
+    if len(gps_points) < 2:
+        raise ValueError("FIT 导出需要至少 2 个 GPS 点")
+
+    # 海拔校准
+    alti_corrected, _ = calibrate_altitude(alti_points)
+
+    # 按时间排序
+    gps_sorted = sorted(gps_points, key=lambda p: p['time'])
+    hr_sorted = sorted(hr_points, key=lambda p: p['time'])
+    cad_sorted = sorted(cadence_points, key=lambda p: p['time'])
+    alti_sorted = sorted(alti_corrected, key=lambda p: p['time'])
+
+    st_name = get_sport_name(st)
+    fit_sport = st_name.lower()
+
+    # 构造 points
+    points = []
+    total_time_ms = dur_ms or (gps_sorted[-1]['time'] - gps_sorted[0]['time'])
+    total_dist = dist_m or 0
+
+    for i, gp in enumerate(gps_sorted):
+        # GCJ02 -> WGS84
+        lat, lon = gcj02_to_wgs84(gp['lat'], gp['lon'])
+
+        # 匹配心率
+        hr = None
+        for hp in hr_sorted:
+            if abs(hp['time'] - gp['time']) <= 5000:
+                hr = hp['hr']
+                break
+
+        # 匹配步频
+        cad = None
+        for cp in cad_sorted:
+            if abs(cp['time'] - gp['time']) <= 5000:
+                cad = cp['cadence']
+                break
+
+        # 匹配海拔
+        alt = None
+        for ap in alti_sorted:
+            if abs(ap['time'] - gp['time']) <= 3000:
+                alt = ap['alt']
+                break
+
+        # 距离（按时间比例分配）
+        frac = (gp['time'] - gps_sorted[0]['time']) / max(1, gps_sorted[-1]['time'] - gps_sorted[0]['time'])
+        distance = total_dist * frac
+
+        # 速度
+        speed = None
+        if i > 0:
+            dt = (gp['time'] - gps_sorted[i - 1]['time']) / 1000
+            dd = distance - (gps_sorted[i - 1].get('_dist', 0))
+            if dt > 0 and dd >= 0:
+                speed = dd / dt
+        gps_sorted[i]['_dist'] = distance
+
+        pt = {
+            'lat': lat,
+            'lon': lon,
+            'ts': gp['time'],
+            'distance': round(distance, 1),
+        }
+        if hr:
+            pt['hr'] = hr
+        if cad:
+            pt['cadence'] = cad
+        if alt is not None and alt != 0:
+            pt['altitude'] = round(alt, 1)
+        if speed is not None:
+            pt['speed'] = round(speed, 4)
+        points.append(pt)
+
+    # 计圈：每 1km
+    if total_dist >= 1000:
+        n_laps = max(1, math.ceil(total_dist / 1000))
+        laps = []
+        for li in range(n_laps):
+            start_i = li * len(points) // n_laps
+            end_i = (li + 1) * len(points) // n_laps - 1
+            if end_i >= len(points):
+                end_i = len(points) - 1
+            lap_pts = points[start_i:end_i + 1]
+            if not lap_pts:
+                continue
+            lap_dist = lap_pts[-1]['distance'] - lap_pts[0]['distance']
+            lap_time = (lap_pts[-1]['ts'] - lap_pts[0]['ts']) / 1000
+            lap_hrs = [p.get('hr') for p in lap_pts if p.get('hr')]
+            lap_cads = [p.get('cadence') for p in lap_pts if p.get('cadence')]
+            lap_speeds = [p.get('speed') for p in lap_pts if p.get('speed')]
+            laps.append({
+                'start_idx': start_i,
+                'end_idx': end_i,
+                'totalDistance': round(lap_dist, 1),
+                'totalElapsedTime': round(lap_time, 1),
+                'avgHeartRate': round(sum(lap_hrs) / len(lap_hrs)) if lap_hrs else None,
+                'maxHeartRate': max(lap_hrs) if lap_hrs else None,
+                'avgCadence': round(sum(lap_cads) / len(lap_cads)) if lap_cads else None,
+                'avgSpeed': round(sum(lap_speeds) / len(lap_speeds), 4) if lap_speeds else None,
+                'maxSpeed': round(max(lap_speeds), 4) if lap_speeds else None,
+                'totalCalories': round((huawei_calories or total_dist * 0.074) * lap_dist / total_dist) if total_dist > 0 else 0,
+                'startLat': points[start_i]['lat'],
+                'startLon': points[start_i]['lon'],
+                'endLat': points[end_i]['lat'],
+                'endLon': points[end_i]['lon'],
+            })
+    else:
+        laps = []
+
+    # Session
+    avg_hr = round(sum(p.get('hr', 0) for p in points if p.get('hr')) / max(1, sum(1 for p in points if p.get('hr')))) if any(p.get('hr') for p in points) else None
+    max_hr = max(p['hr'] for p in points if p.get('hr')) if any(p.get('hr') for p in points) else None
+    avg_cad = round(sum(p.get('cadence', 0) for p in points if p.get('cadence')) / max(1, sum(1 for p in points if p.get('cadence')))) if any(p.get('cadence') for p in points) else None
+    max_cad = max(p['cadence'] for p in points if p.get('cadence')) if any(p.get('cadence') for p in points) else None
+    avg_spd = total_dist / max(1, total_time_ms / 1000) if total_time_ms > 0 else 0
+    max_spd = max(p.get('speed', 0) for p in points if p.get('speed')) if any(p.get('speed') for p in points) else None
+
+    fit_data = {
+        'points': points,
+        'laps': laps,
+        'session': {
+            'startTime': start_time,
+            'totalTime': total_time_ms,
+            'totalDistance': total_dist,
+            'totalCalories': round((huawei_calories or 0) / 1000) if huawei_calories else round(total_dist * 0.074),
+            'avgHeartRate': avg_hr,
+            'maxHeartRate': max_hr,
+            'avgCadence': avg_cad,
+            'maxCadence': max_cad,
+            'avgSpeed': round(avg_spd, 4),
+            'maxSpeed': round(max_spd, 4) if max_spd else None,
+            'sport': fit_sport if fit_sport in ('running', 'cycling', 'walking', 'swimming') else 'other',
+            'subSport': 'generic',
+        },
+        'manufacturer': 1,
+        'product': 1,
+        'productName': 'huawei',
+    }
+
+    # 找 fit_encode.mjs
+    encoder_path = _find_fit_encoder()
+    if not encoder_path:
+        print("[错误] 找不到 fit_encode.mjs。脚本应与 fit_encode.mjs 在同一目录或父目录。")
+        print(f"       查找路径: {os.path.dirname(os.path.abspath(__file__))}")
+        sys.exit(1)
+
+    # 在 encoder 所在目录下运行（找到 package.json + node_modules）
+    node_cwd = _find_node_dir(encoder_path)
+
+    # subprocess 调用（在 encoder 目录执行，保证 node 能找到 package.json）
+    try:
+        proc = subprocess.run(
+            ['node', encoder_path],
+            input=json.dumps(fit_data).encode('utf-8'),
+            capture_output=True,
+            text=False,
+            timeout=120,
+            cwd=node_cwd,
+        )
+    except FileNotFoundError:
+        print("[错误] 找不到 node 命令。请安装 Node.js 和 @garmin/fitsdk。")
+        sys.exit(1)
+
+    if proc.returncode != 0:
+        stderr = proc.stderr.decode('utf-8', errors='replace')
+        print(f"[错误] FIT 编码失败:")
+        print(f"       {stderr[:500]}")
+        sys.exit(1)
+
+    with open(output_path, 'wb') as f:
+        f.write(proc.stdout)
+
+    # 验证
+    file_size_kb = len(proc.stdout) / 1024
+    print(f"    [FIT] {os.path.basename(output_path)} ({file_size_kb:.0f}KB, {len(points)} 点, {len(laps)} 圈)")
+
+    return True
+
+
+# ============================================================
+
+
+# ============================================================
 # 主流程
 # ============================================================
 
-def process_file(input_path):
-    """处理单个华为JSON文件"""
+def process_file(input_path, output_format='fit'):
+    """处理单个华为JSON文件
+    Args:
+        input_path: 华为导出JSON路径
+        output_format: 'fit'（默认）, 'gpx', 'tcx', 'all'
+    """
     if not os.path.isfile(input_path):
         print(f"\n[错误] 找不到文件: {input_path}")
         return False
@@ -527,7 +791,7 @@ def process_file(input_path):
     print("\n[进度] 正在转换...\n")
 
     stats = {
-        'gpx': 0, 'tcx': 0, 'skipped': 0,
+        'fit': 0, 'gpx': 0, 'tcx': 0, 'skipped': 0,
         'corrected': 0,
         'alt_calibrated': 0,
         'sport_types': {},
@@ -613,37 +877,48 @@ def process_file(input_path):
         if len(alti_points) >= 2:
             alti_points, alt_correction = calibrate_altitude(alti_points)
 
-        made_gpx = made_tcx = False
+        huawei_cal = obj.get('totalCalories')
+        made = False
 
-        # GPX
-        if len(gps_points) >= 2:
+        # ===== 根据 format 输出 =====
+        if output_format in ('fit', 'all') and len(gps_points) >= 2:
+            try:
+                fit_path = os.path.join(output_dir, f"{ts_str}_{st_name}_{int(dist_m)}m.fit")
+                export_fit(obj, gps_points, hr_points, cadence_points, alti_points,
+                          st, start_time, dist_m, dur_ms, fit_path, huawei_cal)
+                stats['fit'] += 1
+                made = True
+            except Exception as e:
+                print(f"\n  [警告] FIT生成失败: {e}")
+                import traceback
+                traceback.print_exc()
+
+        if output_format in ('gpx', 'all') and len(gps_points) >= 2:
             try:
                 gpx = build_gpx(gps_points, hr_points, cadence_points, alti_points, st, start_time, dist_m)
                 gpx_filename = f"{ts_str}_{st_name}_{int(dist_m)}m.gpx"
                 with open(os.path.join(output_dir, gpx_filename), 'wb') as f:
                     f.write(pretty_xml(gpx))
                 stats['gpx'] += 1
-                made_gpx = True
+                made = True
             except Exception as e:
                 print(f"\n  [警告] GPX生成失败 ({gpx_filename}): {e}")
 
-        # TCX
-        if hr_points or len(gps_points) >= 2:
+        if output_format in ('tcx', 'all') and (hr_points or len(gps_points) >= 2):
             try:
-                huawei_cal = obj.get('totalCalories')
                 tcx = build_tcx(hr_points, gps_points, cadence_points, alti_points, st, start_time, dist_m, dur_ms, huawei_cal)
-                if made_gpx:
+                if len(gps_points) >= 2:
                     tcx_filename = f"{ts_str}_{st_name}_{int(dist_m)}m.tcx"
                 else:
                     tcx_filename = f"{ts_str}_{st_name}_HRonly.tcx"
                 with open(os.path.join(output_dir, tcx_filename), 'wb') as f:
                     f.write(pretty_xml(tcx))
                 stats['tcx'] += 1
-                made_tcx = True
+                made = True
             except Exception as e:
                 print(f"\n  [警告] TCX生成失败 ({tcx_filename}): {e}")
 
-        if not made_gpx and not made_tcx:
+        if not made:
             stats['skipped'] += 1
 
         if (i + 1) % 50 == 0 or i + 1 == total:
@@ -659,7 +934,7 @@ def _print_progress(processed, total, stats):
     bar = '#' * filled + '.' * (bar_len - filled)
     pct = processed / total * 100
     sys.stdout.write(f"\r  [{bar}] {processed}/{total} ({pct:.0f}%) "
-                     f"GPX:{stats['gpx']} TCX:{stats['tcx']} 跳过:{stats['skipped']}")
+                     f"FIT:{stats.get('fit',0)} GPX:{stats['gpx']} TCX:{stats['tcx']} 跳过:{stats['skipped']}")
     sys.stdout.flush()
 
 
@@ -669,8 +944,12 @@ def _print_summary(total, stats, output_dir):
     print("=" * 60)
 
     print(f"\n  [统计] 总记录数: {total}")
-    print(f"  [GPX]  生成GPX: {stats['gpx']} 个")
-    print(f"  [TCX]  生成TCX: {stats['tcx']} 个")
+    if stats.get('fit'):
+        print(f"  [FIT]  生成FIT: {stats['fit']} 个")
+    if stats['gpx']:
+        print(f"  [GPX]  生成GPX: {stats['gpx']} 个")
+    if stats['tcx']:
+        print(f"  [TCX]  生成TCX: {stats['tcx']} 个")
     print(f"  [跳过] 跳过: {stats['skipped']} 条")
 
     if stats['corrected'] > 0:
@@ -687,7 +966,8 @@ def _print_summary(total, stats, output_dir):
         print(f"    {name:<15} {cnt:4d} 条")
 
     print(f"\n  [目录] 输出目录: {output_dir}")
-    print(f"  [文件] 共 {stats['gpx'] + stats['tcx']} 个文件")
+    n_files = stats.get('fit', 0) + stats['gpx'] + stats['tcx']
+    print(f"  [文件] 共 {n_files} 个文件")
 
     print("\n" + "=" * 60)
     print("  导入指引")
@@ -709,21 +989,38 @@ def _print_summary(total, stats, output_dir):
 
 
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="华为手表 -> 高驰/佳明 运动数据转换工具 (v3.0)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "示例:\n"
+            "  %(prog)s huawei_export.json                    # 默认输出 FIT\n"
+            "  %(prog)s huawei_export.json --format gpx       # 输出 GPX\n"
+            "  %(prog)s huawei_export.json --format all       # 三种格式都输出\n"
+            "  %(prog)s huawei_export.json -o ./out/          # 指定输出目录\n"
+        ),
+    )
+    parser.add_argument('input', nargs='?', help='华为手表导出JSON文件路径')
+    parser.add_argument('--format', '-f', default='fit',
+                        choices=['fit', 'gpx', 'tcx', 'all'],
+                        help='输出格式 (默认: fit)')
+    parser.add_argument('--output-dir', '-o', default=None,
+                        help='输出目录 (默认: 输入文件目录下的 converted_coros_v2/)')
+
+    args = parser.parse_args()
+
     print()
-    print("╔══════════════════════════════════════════════╗")
-    print("║   华为手表 - 高驰/佳明 运动数据转换工具     ║")
-    print("║   v2.0 — 修复版                             ║")
-    print("╚══════════════════════════════════════════════╝")
+    print("╔═══════════════════════════════════════════════════╗")
+    print("║   Huawei -> COROS/Garmin Converter v3.0          ║")
+    print("╚═══════════════════════════════════════════════════╝")
     print()
 
-    input_file = None
+    input_file = args.input
 
-    if len(sys.argv) >= 2:
-        input_file = sys.argv[1]
-    else:
+    if not input_file:
         print("请选择华为手表导出的JSON数据文件。")
-        print("  [提示] 你也可以直接把文件拖到这个脚本上运行\n")
-
         try:
             import tkinter as tk
             from tkinter import filedialog
@@ -732,6 +1029,7 @@ def main():
             root.attributes('-topmost', True)
             input_file = filedialog.askopenfilename(
                 title="选择华为手表导出的JSON数据文件",
+                initialdir=os.getcwd(),
                 filetypes=[("JSON文件", "*.json"), ("所有文件", "*.*")]
             )
             root.destroy()
@@ -743,9 +1041,11 @@ def main():
         sys.exit(1)
 
     input_file = input_file.strip().strip('"').strip("'")
-    print(f"  [文件] 输入文件: {input_file}\n")
+    print(f"  [文件] 输入文件: {input_file}")
+    print(f"  [格式] 输出格式: {args.format}")
+    print()
 
-    success = process_file(input_file)
+    success = process_file(input_file, args.format)
 
     if success:
         print("\n[完成] 转换完成！请按照上方指引导入运动APP。")
