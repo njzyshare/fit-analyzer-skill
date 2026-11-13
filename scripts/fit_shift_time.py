@@ -9,7 +9,7 @@ fit_shift_time.py — FIT 活动「整体平移时间戳」工具
 于是把开始时间从 17:28 改成 05:28 规避（平移 -12h）。
 
 为什么用字节级定点修补，而不是重新编码：
-  - garmin-fit-sdk Encoder 拒写私有设备消息（如 fenix8 的 mesg_num 233），
+  - garmin-fit-sdk Encoder 拒写私有设备消息（如 garmin 的 mesg_num 233），
     重新编码会丢私有消息流；
   - fitparse 没有写方法。
   字节级只改时间戳字段的 4 字节小端值，其余字节原样保留，文件最"原汁原味"。

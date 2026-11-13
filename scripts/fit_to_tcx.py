@@ -13,7 +13,7 @@ What is preserved: GPS trackpoints + altitude, cumulative distance, heart rate,
 cadence, per-lap splits (grouped by lap.start_time), sport type, and the device
 name + serial number (written into <Creator>).
 
-What is lost: proprietary device training-load streams (e.g. fenix8 unknown_233)
+What is lost: proprietary device training-load streams (e.g. garmin unknown_233)
 — TCX has no slot for them. Core running/cycling data is fully retained.
 
 Usage:
@@ -127,7 +127,7 @@ def main():
     creator = ET.SubElement(act, f"{{{NS_TCD}}}Creator")
     creator.set(f"{{{NS_XSI}}}type", "Device")
     prod = fid.get("product")
-    dev_name = "Garmin fenix8" if prod == 4536 else f"Garmin {prod}" if prod else "Garmin Device"
+    dev_name = f"Garmin {prod}" if prod else "Garmin Device"
     ET.SubElement(creator, f"{{{NS_TCD}}}Name").text = dev_name
     ET.SubElement(creator, f"{{{NS_TCD}}}UnitId").text = str(fid.get("serial_number", 0))
     ET.SubElement(creator, f"{{{NS_TCD}}}ProductID").text = str(prod if prod is not None else 0)

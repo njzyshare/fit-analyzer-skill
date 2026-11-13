@@ -10,14 +10,14 @@
 
 一个脚本覆盖两个方向（互逆）：
   → 高驰：参考文件用 COROS 设备导出的 .fit（如 APEX 4 42mm）
-  → 佳明：参考文件用真实佳明设备导出的 .fit（如 fenix8）
+  → 佳明：参考文件用真实佳明设备导出的 .fit（如 garmin）
 
 解析统一用 fit_merge.walk（已验证正确，正确处理压缩时间戳 local 位与 dev 位 0x20），
 不使用本文件早期自写、会漂移的 parse 实现。
 
 用法：
   python rebrand_device.py <src.fit> <ref> <out.fit>
-  ref 可为：设备名(apex4/fenix8) / 含 raw_identity 的 .json / 任意 .fit
+  ref 可为：设备名(apex4/garmin) / 含 raw_identity 的 .json / 任意 .fit
 """
 import struct, sys, datetime, os, json
 
@@ -61,7 +61,7 @@ def resolve_ref_identity(ref):
     """把 <ref> 解析成 (fid_def, fid_data, di_def, di_data) 四条原始字节。
 
     ref 支持三种形态：
-      1) 设备名（如 apex4 / fenix8）→ 优先私人区 JSON 的 raw_identity，
+      1) 设备名（如 apex4 / garmin）→ 优先私人区 JSON 的 raw_identity，
          否则回退到已提交的 references/profiles/<name>_identity.json（仅无序列号设备）；
       2) .json 路径且含 raw_identity → 直接读取；
       3) .fit 路径 → 字节级解析（任意设备的一次性用法，不落盘）。

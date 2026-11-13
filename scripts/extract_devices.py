@@ -129,7 +129,7 @@ def read_identity(path, brand):
         out['product_name'] = main.get(27)
     if brand == 'garmin' and not out['product_name']:
         # 佳明 device_info 的字段 27 是 24 字节 product_name，本例全 0xFF（空）
-        out['product_name'] = 'fenix 8'
+        out['product_name'] = 'Garmin 手表'
     return out, devs
 
 
@@ -191,9 +191,9 @@ def main():
     if want_garmin:
         if os.path.exists(garmin_src):
             garmin, _ = read_identity(garmin_src, 'garmin')
-            store['devices']['garmin_fenix8'] = {
+            store['devices']['garmin_watch'] = {
                 **garmin,
-                '_备注': '佳明 fenix 8 官方导出，作为「改成佳明设备」的唯一权威来源',
+                '_备注': '佳明 Garmin 手表 官方导出，作为「改成佳明设备」的唯一权威来源',
             }
             print(f'佳明身份已更新（{garmin_src}）')
         else:

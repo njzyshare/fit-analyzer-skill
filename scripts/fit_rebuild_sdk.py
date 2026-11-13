@@ -7,7 +7,7 @@ fit_rebuild_sdk.py — Re-encode a FIT activity through the OFFICIAL Garmin SDK
 WHY: a last-resort path when byte-level merge/rebuild is still rejected. The
 official SDK produces the most "standard" possible file, which Connect is most
 likely to accept. Trade-off: the SDK Encoder REFUSES to write proprietary device
-messages (mesg_num not in Profile, e.g. fenix8 unknown_233 training-load
+messages (mesg_num not in Profile, e.g. garmin unknown_233 training-load
 streams) — those are dropped. All standard messages (record/lap/session/
 activity/event/device_info/...) are kept, in original order.
 

@@ -7,7 +7,7 @@
 | 能力 | 命令 |
 |---|---|
 | 佳明 → 高驰（规范重建）| `fit_convert_by_template.py in.fit out.fit --to coros_apex4` |
-| 高驰 → 佳明（规范重建）| `fit_convert_by_template.py in.fit out.fit --to garmin_fenix8` |
+| 高驰 → 佳明（规范重建）| `fit_convert_by_template.py in.fit out.fit --to garmin_watch` |
 | 华为 → FIT / GPX / TCX | `huawei_convert.py 导出.json [--format gpx\|tcx\|all]` |
 | 华为 → 批量按类型输出 | `huawei_batch_convert.py 导出.json -o ./out` |
 | 任意 → TCX（兜底）| `fit_to_tcx.py in.fit -o out.tcx` |
@@ -43,7 +43,7 @@ python scripts/fit_conformance_check.py 高驰.fit --temp coros_apex4 --src 佳�
 python scripts/fit_diff_vs_template.py  高驰.fit --temp coros_apex4 --src 佳明.fit
 
 # 高驰 → 佳明（同一套流程，换规范名）
-python scripts/fit_convert_by_template.py 高驰.fit 佳明.fit --to garmin_fenix8
+python scripts/fit_convert_by_template.py 高驰.fit 佳明.fit --to garmin_watch
 
 # 华为 → FIT
 python scripts/huawei_convert.py 导出.json

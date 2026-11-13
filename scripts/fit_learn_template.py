@@ -18,7 +18,7 @@
 用法
 ----
     python fit_learn_template.py <真机.fit> --name coros_apex4
-    python fit_learn_template.py <真机.fit> --name garmin_fenix8 --note "fenix 8 跑步"
+    python fit_learn_template.py <真机.fit> --name garmin_watch --note "Garmin 手表 跑步"
     python fit_learn_template.py --list          # 列出已学模板
 """
 

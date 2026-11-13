@@ -1,6 +1,6 @@
-# garmin_fenix8 格式规范
+# garmin_watch 格式规范
 
-> Garmin fenix 8
+> Garmin 手表
 >
 > 本文件由 `fit_distill_spec.py` 从真机文件学习后精炼而成，**只保留可复用的格式规则**（已剔除学习过程的观测噪声）。
 

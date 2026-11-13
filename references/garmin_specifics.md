@@ -1,7 +1,7 @@
 # 佳明（Garmin）特有规范
 
 > **性质**：佳明在 FIT 标准之外的私有约定清单。互转 / 注入 / 换皮时必须逐条处理。
-> **来源**：逐字节实测佳明真机 `640810408_ACTIVITY.fit` / `623001702_ACTIVITY.fit`（fenix 8）、合并产物 `merged_fenix8.fit`。
+> **来源**：逐字节实测佳明真机 `640810408_ACTIVITY.fit` / `623001702_ACTIVITY.fit`（Garmin 手表）、合并产物 `merged_garmin.fit`。
 > **配套**：通用规范见 `fit_format_spec.md`；高驰侧见 `coros_specifics.md`；互转对照见 `cross_conversion.md`。
 
 ---
@@ -44,7 +44,7 @@
 |---|---|
 | 条数 | **21**（手表 + 气压计 + GPS + 心率带等传感器各重复）|
 | 是否含内置传感器 | ✅ |
-| 主设备字段 | product(4)=**4536**(fenix 8)、serial(3)=**真实序列号（存私有区，不进公开文件）**、softwareVersion、hardwareVersion 等 |
+| 主设备字段 | product(4)=**4536**(Garmin 手表)、serial(3)=**真实序列号（存私有区，不进公开文件）**、softwareVersion、hardwareVersion 等 |
 
 🔴 **Connect 校验核心**：服务端校验 `(product, UnitID)` 是否匹配真实佳明设备；不匹配→显示「未知设备」且可能重算海拔。
 **设备是否带气压高度计决定高程校正开关**：带气压计→校正默认关、用设备记录海拔；不带→用 DEM 地形数据替换每个轨迹点（二次加工爬升）。故注入「真实佳明带气压计设备」即可彻底解决。
@@ -56,7 +56,7 @@
 |---|---|
 | 0 type | 4（activity）|
 | 1 manufacturer | **1**（garmin）|
-| 2 product | **4536**（fenix 8）|
+| 2 product | **4536**（Garmin 手表）|
 | 4 timeCreated | 导出时间 |
 | 8 productName | 通常无（佳明不写 productName）|
 
@@ -81,7 +81,7 @@
 | lap 平均/最大速度 | `f110`/`f111` enhanced（f13/f14 常无效）| |
 | session 平均/最大速度 | `f124`/`f125`（f14/f15 常无效）| |
 | lap/session 温度 | `f50`/`f57`（**S8**）| |
-| record 温度 | **无温度通道**（fenix 8 需外接温度计）| 真机值常 `127`（无效）|
+| record 温度 | **无温度通道**（佳明手表需外接温度计）| 真机值常 `127`（无效）|
 | 步频 | 同高驰（rpm，×2=spm）| |
 
 ## 七、activity(34) 私有字段

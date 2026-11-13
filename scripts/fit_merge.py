@@ -71,7 +71,7 @@ DROP_NAMES = {
     # resolve against the single remaining definition.
     "developer_data_id", "field_description",
 }
-# Add device-specific proprietary singletons as discovered (fenix8 example):
+# Add device-specific proprietary singletons as discovered (garmin example):
 #   "unknown_140","unknown_141","unknown_147","unknown_79","unknown_499","unknown_517"
 
 SESSION_FIELDS = {"total_distance": 9, "total_timer_time": 8,

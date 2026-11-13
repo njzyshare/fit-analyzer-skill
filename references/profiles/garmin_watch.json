@@ -1,6 +1,6 @@
 {
- "name": "garmin_fenix8",
- "device_note": "Garmin fenix 8",
+ "name": "garmin_watch",
+ "device_note": "Garmin 手表",
  "header": {
   "protocol_version": 16,
   "profile_version": 21213,

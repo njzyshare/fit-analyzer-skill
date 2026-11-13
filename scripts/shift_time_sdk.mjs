@@ -49,7 +49,7 @@ enc.writeMesg({ mesgNum: Profile.MesgNum.FILE_ID, ...shiftObj(strip(fidF), delta
 for (const d of devDataIds) enc.writeMesg({ mesgNum: Profile.MesgNum.DEVELOPER_DATA_ID, ...strip(d) });
 for (const f of fieldDescs) enc.writeMesg({ mesgNum: Profile.MesgNum.FIELD_DESCRIPTION, ...strip(f) });
 
-// device_info：保留源文件里的（已是 fenix8），平移 timestamp
+// device_info：保留源文件里的（已是 garmin），平移 timestamp
 const dev0 = (messages.deviceInfoMesgs || [])[0];
 if (dev0) enc.writeMesg({ mesgNum: Profile.MesgNum.DEVICE_INFO, ...shiftObj(strip(dev0.fields || dev0), delta) });
 

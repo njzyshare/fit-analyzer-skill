@@ -76,7 +76,7 @@
 
 完整格式互转很重；多数需求只是「把任意运动文件伪装成某平台标准设备」：
 
-- **任意 → 佳明**：`inject_garmin_device.mjs apply <源> --device fenix8 --out <出>`（剥离第三方私有段、重写 file_id/device_info 为真实 fenix8、防 Connect 重算爬升）。
+- **任意 → 佳明**：`inject_garmin_device.mjs apply <源> --device garmin --out <出>`（剥离第三方私有段、重写 file_id/device_info 为真实 garmin、防 Connect 重算爬升）。
 - **任意 → 高驰**：`inject_coros.py apply <源> --device apex4 --out <出>`（字节级嵌入高驰 device_info、proto 翻 0x20）。
 - **两平台互逆换皮**：`rebrand_device.py <src> <ref> <out>`（复制 ref 的 file_id+device_info 字节，src 的 local 号+时间戳，运动数据 100% 保留）。
 

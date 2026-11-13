@@ -8,9 +8,9 @@
 //
 // 工作流：
 //   1) extract：从你自己的真实佳明活动 .fit 抽取设备信息，存入私人区域
-//      node scripts/inject_garmin_device.mjs extract 真实佳明.fit --name fenix8
+//      node scripts/inject_garmin_device.mjs extract 真实佳明.fit --name garmin
 //   2) apply：把私人区域里的设备信息应用到任意第三方 FIT
-//      node scripts/inject_garmin_device.mjs apply 第三方.fit --device fenix8 --out 第三方_fenix8.fit
+//      node scripts/inject_garmin_device.mjs apply 第三方.fit --device garmin --out 第三方_garmin.fit
 //
 // 原理（已实测）：Garmin Connect 对上传文件做服务端校验 (product, UnitID) 是否匹配真实佳明设备；
 // 不匹配则显示「未知设备」且可能照常重算海拔。同时，设备是否带气压高度计决定高程校正开关
@@ -56,7 +56,7 @@ function readDeviceFromFit(fitPath) {
   return {
     manufacturer: (fid.manufacturer === 'garmin' || fid.manufacturer === 1) ? 'garmin' : fid.manufacturer,
     product: fid.product ?? dev.product,
-    productName: fid.productName || dev.productName || 'fenix 8',
+    productName: fid.productName || dev.productName || 'Garmin 手表',
     serialNumber: fid.serialNumber ?? dev.serialNumber,
     softwareVersion: dev.softwareVersion ?? 0,
     hardwareVersion: dev.hardwareVersion ?? 0,
@@ -207,12 +207,12 @@ try {
     if (!arg1) throw new Error('apply 需要源 .fit 路径');
     const store = loadStore();
     const key = getOpt('--device') || store.default || 'garmin';
-    const out = getOpt('--out') || arg1.replace(/\.fit$/i, '_fenix8.fit');
+    const out = getOpt('--out') || arg1.replace(/\.fit$/i, '_garmin.fit');
     applyDevice(arg1, key, out);
   } else {
     console.log(`用法:
-  extract <真实佳明.fit> [--name fenix8]           从真实佳明活动抽取设备信息，存入私人区域
-  apply   <第三方.fit> [--device fenix8] [--out 输出.fit]   注入设备信息到第三方 FIT
+  extract <真实佳明.fit> [--name garmin]           从真实佳明活动抽取设备信息，存入私人区域
+  apply   <第三方.fit> [--device garmin] [--out 输出.fit]   注入设备信息到第三方 FIT
 
 私人设备文件: ${storePath()}
 （路径可用环境变量 GARMIN_DEVICES_JSON 覆盖）`);

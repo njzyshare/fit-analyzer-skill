@@ -157,7 +157,7 @@ src_temp = _by_month.get(_m, 24)      # ← 凭想象生成的假数据
 ### 另一条相关教训：字段号必须查官方定义
 
 我在查温度时又一次猜错：以为 record 的温度是 `f53`，**实际 `f53` 是 `fractionalCadence`（小数步频，值只有 0/64）**，
-`f13` 才是 `temperature`。且实测本佳明文件**根本没有 f13 通道**（fenix 8 需外接温度计）。
+`f13` 才是 `temperature`。且实测本佳明文件**根本没有 f13 通道**（Garmin 手表 需外接温度计）。
 
 > 📌 **任何字段号都要先查 `fit_profile_official.json` 再写代码。**
 

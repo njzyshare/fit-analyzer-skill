@@ -1,6 +1,6 @@
 ---
 name: 运动记录fit分析器
-description: "通用运动 FIT 记录分析/修改工具集。覆盖佳明/高驰/颂拓/华为等品牌 .fit 文件。能力：合并分段活动、FIT 体检、官方 SDK 重建、华为JSON→FIT/GPX/TCX、时间戳平移、FIT 预览、注入真实佳明/高驰设备信息（防 Connect 重算爬升 / 防未知设备）、字节级设备身份替换（Fenix8↔COROS 互换）、跨品牌互转（佳明↔高驰，规范驱动+双关卡门禁）。触发词：'合并fit'、'分析fit'、'体检fit'、'导出tcx'、'改时间'、'华为转换'、'预览fit'、'注入佳明设备'、'防重算爬升'、'改成高驰设备'、'改成佳明设备'、'改设备身份'、'换设备'、'互转fit'、'规范门禁'、'学模板'、'全维度比对'。"
+description: "通用运动 FIT 记录分析/修改工具集。覆盖佳明/高驰/颂拓/华为等品牌 .fit 文件。能力：合并分段活动、FIT 体检、官方 SDK 重建、华为JSON→FIT/GPX/TCX、时间戳平移、FIT 预览、注入真实佳明/高驰设备信息（防 Connect 重算爬升 / 防未知设备）、字节级设备身份替换（Garmin↔COROS 互换）、跨品牌互转（佳明↔高驰，规范驱动+双关卡门禁）。触发词：'合并fit'、'分析fit'、'体检fit'、'导出tcx'、'改时间'、'华为转换'、'预览fit'、'注入佳明设备'、'防重算爬升'、'改成高驰设备'、'改成佳明设备'、'改设备身份'、'换设备'、'互转fit'、'规范门禁'、'学模板'、'全维度比对'。"
 version: 4.8.0
 agent_created: true
 ---
@@ -37,7 +37,7 @@ agent_created: true
 | 合并分段（字节级拼接）| `fit_merge.py` | ① 高驰✅ 佳明❌ |
 | 注入真实佳明设备（防重算爬升）| `inject_garmin_device.mjs apply` | ① |
 | 注入真实高驰设备（字节级防四不像）| `inject_coros.py apply` | ① |
-| 设备身份互逆换皮（Fenix8↔COROS）| `rebrand_device.py <src> <ref> <out>` | ① |
+| 设备身份互逆换皮（Garmin↔COROS）| `rebrand_device.py <src> <ref> <out>` | ① |
 | FIT 预览（HTML，先问后给）| `fit_preview.py input.fit` | ① |
 | 华为→FIT/GPX/TCX | `huawei_convert.py 导出.json` | ① |
 | 时间戳平移（SDK 保真版）| `shift_time_sdk.mjs in out -12` | ① |
@@ -81,7 +81,7 @@ agent_created: true
 
 ## 设备身份注入
 
-- **注入真实佳明**（防 Connect 重算爬升）：`inject_garmin_device.mjs extract 真实佳明.fit --name fenix8` → `apply 第三方.fit --device fenix8 --out 出.fit`。默认剥离第三方私有开发者字段（佳明不识别，重复 field_description 会被拒）。无真实佳明不可凭空编造。
+- **注入真实佳明**（防 Connect 重算爬升）：`inject_garmin_device.mjs extract 真实佳明.fit --name garmin` → `apply 第三方.fit --device garmin --out 出.fit`。默认剥离第三方私有开发者字段（佳明不识别，重复 field_description 会被拒）。无真实佳明不可凭空编造。
 - **注入真实高驰**（字节级，防四不像）：`inject_coros.py extract 真实高驰.fit --name apex4` → `apply 源.fit --device apex4 --out 出.fit`（proto 默认 0x20）。删源全部 device_info 只嵌单条高驰；运动数据/私有字段 100% 保留。
   - **apply 无需先 extract**：若私人库 `coros_devices.json` 缺 `raw_identity`，自动回退到已提交的 `references/profiles/coros_<name>_identity.json`（无序列号设备），照常可跑——别再手去搜源 .fit。
   - **换皮后一键验收**：`inject_coros.py verify --src 源.fit --out 出.fit` → 一次出「设备身份列表 + 条数守恒(record/lap/session/event/activity) + 文件/header CRC + proto 字节」，输出 PASS 即身份正确替换、数据零改动。替代手搓脆弱 probe（COROS device_info 无 `garmin_product` 字段，手搓 `get_value` 会 KeyError）。
@@ -115,7 +115,7 @@ agent_created: true
 | T10 | message_index 同类内唯一 |
 | T11–T17 | 对照原始段：起止时间/时间戳多重集/总时长/身份 == 段1∪段2 |
 
-**T08 源固有判 FAIL**：若同一源单独跑也 FAIL（如 fenix8 一次 39 圈），则产物 FAIL 是继承源固有，不修、不 tamper。反之源 PASS、产物 FAIL 才是真 bug。
+**T08 源固有判 FAIL**：若同一源单独跑也 FAIL（如 garmin 一次 39 圈），则产物 FAIL 是继承源固有，不修、不 tamper。反之源 PASS、产物 FAIL 才是真 bug。
 
 ## 脚本索引
 

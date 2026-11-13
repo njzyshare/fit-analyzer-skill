@@ -30,7 +30,7 @@
     python fit_convert_by_template.py 源.fit 产物.fit --to coros_apex4
 
     # 高驰 → 佳明
-    python fit_convert_by_template.py 源.fit 产物.fit --to garmin_fenix8
+    python fit_convert_by_template.py 源.fit 产物.fit --to garmin_watch
 
     # 源编码是佳明惯例时，可显式声明（默认自动探测 enhanced 字段）
     python fit_convert_by_template.py 源.fit 产物.fit --to coros_apex4 --from garmin
