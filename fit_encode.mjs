@@ -65,7 +65,7 @@ function encodeFit(data) {
   if (pts.length === 0) throw new Error('points array is empty');
 
   const FIT_INVALID_U8 = 255;
-  const FIT_INVALID_U16 = 65535;
+  const FIT_INVALID_U16 = 0x8000;  // enhancedAltitude 无效值 (32768)
 
   // 时间对象
   const startDate = new Date(session.startTime || pts[0].ts);
@@ -170,6 +170,7 @@ function encodeFit(data) {
       speed: p.speed != null ? p.speed : 0,
       enhancedSpeed: p.speed != null ? p.speed : 0,
       enhancedAltitude: p.altitude != null ? Math.round(p.altitude) : FIT_INVALID_U16,
+      altitude: p.altitude != null ? Math.round(p.altitude * 2) : undefined,
     };
     enc.writeMesg(rec);
   }
@@ -221,6 +222,8 @@ function encodeFit(data) {
       avgHeartRate: lap.avgHeartRate || undefined,
       maxHeartRate: lap.maxHeartRate || undefined,
       avgCadence: lap.avgCadence || undefined,
+      totalAscent: lap.totalAscent || undefined,
+      totalDescent: lap.totalDescent || undefined,
       totalCalories: lap.totalCalories || 0,
       event: 'lap',
       eventType: 'stop',
@@ -258,6 +261,8 @@ function encodeFit(data) {
     eventType: 'stop',
     avgCadence: session.avgCadence || undefined,
     maxCadence: session.maxCadence || undefined,
+    totalAscent: session.totalAscent || undefined,
+    totalDescent: session.totalDescent || undefined,
     totalTrainingEffect: session.trainingEffect || undefined,
     totalAnaerobicTrainingEffect: session.anaerobicTrainingEffect || undefined,
   };
