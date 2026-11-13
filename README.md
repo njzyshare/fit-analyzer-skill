@@ -76,6 +76,7 @@ python scripts/fit_shift_time.py input.fit --delta-hours -12
 - **气压计海拔校准**：自动检测偏移并修正（华为手表常见 -30m 偏移）。
 - **步频、卡路里、心率**：全部从华为原始数据提取，无漏缺。
 - **运动类型智能推断**：配速+步频+GPS 综合判断，骑行/游泳不受配速规则影响。
+- **manufacturer/product 遵从原始数据**：不默认写任何品牌。默认 `0xFF (development)`。仅用户要求修复佳明爬升时才注入佳明设备信息。
 
 ## 技术原理
 
