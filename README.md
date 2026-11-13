@@ -4,7 +4,7 @@
 
 ## 能力
 
-- **FIT 预览** — FIT 文件一键生成交互式 HTML 预览（轨迹地图 + Session 摘要 + 全字段统计 + 计圈详情）
+- **FIT 预览** — 一键生成交互式 HTML 预览页面（轨迹地图 + Session 摘要 + 全字段统计 + 计圈详情），双击浏览器打开，无需额外工具
 - **合并分段活动** — 把一次连续运动被存成的多个 .fit 合并回单个活动
 - **华为手表 → FIT/GPX/TCX** — 华为 JSON 导出直接转换为标准运动文件，默认输出 FIT（完整数据、轨迹正确、规范合规）
 - **FIT 体检** — 上传前语义验证，抓出平台可能拒收的隐藏问题
@@ -28,6 +28,9 @@ npm install @garmin/fitsdk
 ```bash
 # 查看所有可用脚本
 ls scripts/
+
+# FIT 预览（一键生成 HTML，浏览器打开即可查看）
+python scripts/fit_preview.py my_activity.fit
 
 # 华为数据 → FIT（默认，推荐）
 python scripts/huawei_convert.py 华为导出.json

@@ -25,9 +25,9 @@ import {Decoder, Encoder, Stream, Profile} from '@garmin/fitsdk';
 import fs from 'fs';
 
 const files = [
-  'C:\\Users\\feijiangbin\\Desktop\\618268744_ACTIVITY.fit',
-  'C:\\Users\\feijiangbin\\Desktop\\618268745_ACTIVITY.fit',
-  'C:\\Users\\feijiangbin\\Desktop\\618268750_ACTIVITY.fit',
+  './seg1.fit',  // 替换为你的分段文件路径
+  './seg2.fit',
+  './seg3.fit',
 ];
 
 const segs = files.map(fp => {
@@ -267,7 +267,7 @@ if (s) {
 
 console.log(`\n协议: protocol=${buf[1]} profile=${(buf[2] | buf[3] << 8)} fCount=${buf[14+5]}`);
 
-const outPath = 'D:\\CD-LIGHT-workbuddy\\merged_activity_fixed.fit';
+const outPath = './merged_activity_fixed.fit';  // 输出路径（可修改）
 // Uint8Array 不能直接 fs.writeFileSync，转成 Buffer
 const outBuf = Buffer.isBuffer(buf) ? buf : Buffer.from(buf);
 fs.writeFileSync(outPath, outBuf);
