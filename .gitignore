@@ -14,3 +14,7 @@ scripts/_*.mjs
 
 # 本地调试草稿（不入库）
 scripts/_scratch/
+
+# 本地临时工作目录与学习模板（模板不入库，规范才是资产）
+_work/
+references/templates/

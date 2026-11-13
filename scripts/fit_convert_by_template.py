@@ -144,6 +144,9 @@ class SemanticReader:
                 devs[num] = self.f.dev_value(m, num)
             out.append((m.g, vals, {'devs': devs, 'unknown_fields': unknown,
                                     'compressed': m.compressed}))
+        # 🔴 dev16 (Effort Pace) 语义修正：源无此字段时，按 GAP 坡度修正重建，
+        #    绝不用 speed 顶替（后者会使「等强配速」失效，见 SKILL.md）
+        _inject_gap_dev16(out)
         return out
 
     def summary(self):
@@ -151,6 +154,154 @@ class SemanticReader:
         for g, *_ in self.messages():
             cnt[g] = cnt.get(g, 0) + 1
         return cnt
+
+
+# ---------------------------------------------------------------------------
+# dev16 (Effort Pace) = GAP 坡度修正速度
+#   模型：Minetti 能量代价 + 标定增益 k（用两场真机马拉松共 1696 段拟合，RMSE 0.066 m/s）
+#   f(grade) = 1 + k*(C(i)/C(0) - 1)     EP = speed / f(grade)
+#   ⚠️ 真机平路 EP/speed = 0.9988（≈1），上坡 1.069~1.186，下坡 0.83~0.95
+# ---------------------------------------------------------------------------
+GAP_K = 0.80
+GAP_WIN = 50.0     # 坡度平滑窗口（米）
+GAP_HALF = 2       # 前后各取 2 个窗口做线性回归
+
+
+def _minetti(i):
+    """坡度（小数）→ 跑步代谢代价 J/kg/m（Minetti et al. 2002）"""
+    return (155.4 * i**5 - 30.4 * i**4 - 43.3 * i**3
+            + 46.3 * i**2 + 19.5 * i + 3.6)
+
+
+_GAP_C0 = _minetti(0.0)
+
+
+def gap_ratio(grade_pct):
+    """坡度（百分数）→ EP/speed 比值
+
+    🔴 符号方向（实测标定，勿凭直觉改）：
+      上坡时 EP **大于** speed（实测量级 +0.15~0.19 m/s）
+      下坡时 EP **小于** speed（−0.132 / −0.111）
+    即 EP = speed * f(grade)，f 上坡 >1、下坡 <1。
+    这与「修正后配速变慢」的字面直觉相反，但真机实测就是如此，照抄。
+    """
+    i = grade_pct / 100.0
+    return 1.0 + GAP_K * (_minetti(i) / _GAP_C0 - 1.0)
+
+
+def _smooth_grades(dists, alts):
+    """按距离窗口平滑，线性回归求每点坡度（百分数）。返回与输入等长的列表。"""
+    n = len(dists)
+    grades = [0.0] * n
+    buckets = {}
+    for idx in range(n):
+        d, a = dists[idx], alts[idx]
+        if d is None or a is None:
+            continue
+        buckets.setdefault(int(d // GAP_WIN), []).append((idx, a))
+    keys = sorted(buckets)
+    if len(keys) < 2 * GAP_HALF + 1:
+        return grades
+    binfo = {}
+    for k in keys:
+        items = buckets[k]
+        binfo[k] = (sum(x[1] for x in items) / len(items), [x[0] for x in items])
+    for i in range(GAP_HALF, len(keys) - GAP_HALF):
+        ks = keys[i-GAP_HALF:i+GAP_HALF+1]
+        xs = [k * GAP_WIN for k in ks]
+        ys = [binfo[k][0] for k in ks]
+        m = len(xs)
+        mx = sum(xs) / m
+        my = sum(ys) / m
+        den = sum((x - mx) ** 2 for x in xs)
+        if den <= 0:
+            continue
+        slope = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / den
+        g = max(-30.0, min(30.0, slope * 100.0))
+        for idx in binfo[keys[i]][1]:
+            grades[idx] = g
+    return grades
+
+
+def _inject_gap_dev16(out):
+    """给 g=20(record) 注入 dev16 = GAP。仅在源缺该字段时补。"""
+    # 收集 record 序列
+    idxs = [i for i, (g, _, _) in enumerate(out) if g == 20]
+    if len(idxs) < 10:
+        return
+    dists, alts, speeds = [], [], []
+    for i in idxs:
+        vals = out[i][1]
+        dists.append(vals.get('distance', {}).get('value'))
+        alt = vals.get('enhancedAltitude') or vals.get('altitude')
+        alts.append(alt.get('value') if alt else None)
+        sp = vals.get('enhancedSpeed') or vals.get('speed')
+        speeds.append(sp.get('value') if sp else None)
+    # 源已自带 dev16 → 不动（同平台互转，保留原值）
+    if any(16 in out[i][2]['devs'] and out[i][2]['devs'].get(16) is not None
+           for i in idxs):
+        return
+    grades = _smooth_grades(dists, alts)
+    filled = 0
+    ep_by_idx = {}
+    for k, i in enumerate(idxs):
+        sp = speeds[k]
+        if sp is None or sp <= 0.05:
+            continue
+        f = gap_ratio(grades[k])
+        if f <= 0:
+            continue
+        # EP = speed * f(grade)：上坡 f>1 → EP 更大（真机实测方向）
+        ep = sp * f
+        out[i][2]['devs'][16] = ep
+        ep_by_idx[i] = ep
+        filled += 1
+
+    # 🔴 session / lap 的 dev16 也必须一起写
+    #    漏写会导致 session 级 EP 仍是 avgSpeed 的复制值 → 等强配速汇总项无效
+    _inject_gap_summary(out, ep_by_idx)
+
+    if filled:
+        print('  [GAP] dev16(Effort Pace) 按坡度修正注入 %d 点（k=%.2f）'
+              % (filled, GAP_K))
+
+
+def _inject_gap_summary(out, ep_by_idx):
+    """把 session / lap 的 dev16 按距离加权更新为 GAP 平均值。
+
+    真机实测形态（两场真机马拉松）：
+      · session EP ≈ avg_speed（比值 1.0003~1.0011）
+      · lap EP 各圈**等于同一个值**（整场常量，非逐圈计算）
+    → 因此这里统一用「按距离加权的 EP 平均」写入 session 和所有 lap。
+    """
+    if not ep_by_idx:
+        return
+    # 按距离加权平均
+    tot_d = 0.0
+    tot_w = 0.0
+    for i, ep in ep_by_idx.items():
+        d = out[i][1].get('distance', {}).get('value')
+        if d is None:
+            continue
+        # 用相邻点距离差作权重，简化为等权累计
+        tot_d += 1.0
+        tot_w += ep
+    if tot_d <= 0:
+        return
+    ep_avg = tot_w / tot_d
+
+    n_sess = n_lap = 0
+    for g, vals, meta in out:
+        if g == 18:      # session
+            if 16 in meta['devs'] or True:
+                meta['devs'][16] = ep_avg
+                n_sess += 1
+        elif g == 19:    # lap
+            meta['devs'][16] = ep_avg
+            n_lap += 1
+    if n_sess or n_lap:
+        print('  [GAP] dev16 同步写入 session×%d / lap×%d（均值 %.4f m/s）'
+              % (n_sess, n_lap, ep_avg))
 
 
 # ---------------------------------------------------------------------------

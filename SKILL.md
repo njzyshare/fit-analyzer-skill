@@ -20,6 +20,7 @@ agent_created: true
 | `references/cross_conversion.md` | **互转对照**：相同点合并 + 差异处理清单 + 换皮快捷路线 |
 | `references/华为转换.md` | 华为 JSON→FIT/GPX/TCX 铁律 |
 | `references/合并与重建.md` `设备注入与身份.md` `协议与时间戳.md` `规范驱动互转.md` | 细分铁律 |
+| `references/coros_mcp.md` | **高驰 MCP**：部署配置、能力边界、取数口径（运动/睡眠/恢复/训练负荷）|
 
 ## 路线总览
 
@@ -76,6 +77,7 @@ agent_created: true
 9. 暂停不算进配速但计入 elapsed；每圈 `total_distance` 写本圈距离（end−start），绝不可写累计值。
 10. SDK 是验证工具不是转换引擎；校验不过先怀疑检查器，用独立手段裁定。
 11. 精炼 ≠ 丢信息：规范里下游要读的字段一个不能省；能省的是给人看的冗余。
+12. 🔴 **换皮只看「最快1KM」**：能否算出最快1KM 唯一取决于 record 是否按高驰规范重建（骨架干净、零 `unknown_*`），字段齐不齐不保证。**设备型号显示、等强配速属服务端/硬件侧判定，FIT 改不出来**，不要浪费时间。详见 `coros_specifics.md` §九/§十。
 
 ## 设备身份注入
 
