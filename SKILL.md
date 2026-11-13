@@ -1,7 +1,7 @@
 ---
 name: 运动记录fit分析器
-description: "通用运动 FIT 记录分析/修改工具集。覆盖佳明/高驰/颂拓/华为等品牌 .fit 文件。已落地：合并分段活动、FIT 体检、官方 SDK 重建、华为JSON→FIT/GPX/TCX、时间戳平移、FIT 预览。支持 protocol=2 核心消息+设备信息注入。触发词：'合并fit'、'分析fit'、'体检fit'、'导出tcx'、'改时间'、'华为转换'、'预览fit'。"
-version: 3.3.0
+description: "通用运动 FIT 记录分析/修改工具集。覆盖佳明/高驰/颂拓/华为等品牌 .fit 文件。已落地：合并分段活动、FIT 体检、官方 SDK 重建、华为JSON→FIT/GPX/TCX、时间戳平移、FIT 预览、注入真实佳明设备信息防 Connect 重算爬升。支持 protocol=2 核心消息+设备信息注入。触发词：'合并fit'、'分析fit'、'体检fit'、'导出tcx'、'改时间'、'华为转换'、'预览fit'、'注入佳明设备'、'防重算爬升'。"
+version: 3.4.0
 agent_created: true
 ---
 
@@ -19,6 +19,7 @@ agent_created: true
 | 体检 | `fit_healthcheck.py` | 上传前验证 |
 | 导出TCX | `fit_to_tcx.py` | FIT→TCX兜底 |
 | 改时间 | `fit_shift_time.py` | 平移时间戳 |
+| **注入佳明设备（防 Connect 重算爬升）** | **`inject_garmin_device.mjs`** | **第三方手表文件 → 真实佳明设备身份** |
 
 ## 环境
 
@@ -68,6 +69,42 @@ python scripts/huawei_convert.py 华为导出.json --format all        # 全部�
 python scripts/huawei_batch_convert.py 华为导出.json --output-dir ./华为运动FIT
 ```
 
+## 为第三方手表文件注入真实佳明设备信息（阻止 Garmin Connect 重算爬升）
+
+**问题**：高驰/华为/颂拓等第三方手表产出的 FIT 上传 Garmin Connect 后，爬升常被「二次加工」——要么显示「未知设备」，要么被用 DEM 地形数据替换每个轨迹点的海拔（高程校正）。
+
+**原理（已实测验证）**：
+1. Garmin Connect 对上传文件做**服务端校验** `(product, UnitID)` 是否匹配真实佳明设备；不匹配 → 显示「未知设备」。
+2. 是否带**气压高度计**决定高程校正开关：带气压计 → 校正默认关、直接用设备记录海拔；不带 → 用 DEM 地形数据替换每个轨迹点 = 二次加工爬升。
+3. 因此：**把 file_id + device_info 改成「真实佳明带气压计设备」**，Connect 即识别为可信设备，关掉校正 → 爬升按原始数据、不再重算。
+
+**关键约束——设备信息存在私人区域，绝不写死在脚本/skill 里**：
+- 私人设备文件：`~/.workbuddy/private/garmin_devices.json`（可用环境变量 `GARMIN_DEVICES_JSON` 覆盖路径）。
+- 该文件**不随 skill 的 GitHub 更新而变动**，也不进任何公开仓库。Unit ID 属私人数据。
+- 脚本 `inject_garmin_device.mjs` 运行时才读取该文件。
+
+**工作流（两步）**：
+
+```bash
+# 0) 首次：从你自己的真实佳明活动 .fit 抽取设备信息，存进私人区域
+#    （任意佳明手表的活动备份 / 导出的 .fit 均可，只要是真设备产出）
+node scripts/inject_garmin_device.mjs extract 真实佳明.fit --name fenix8
+
+# 1) 把私人区域里的设备信息注入到任意第三方手表 FIT
+node scripts/inject_garmin_device.mjs apply 高驰.fit --device fenix8 --out 高驰_fenix8.fit
+#    不写 --device 时取私人文件里的 default 项；不写 --out 时默认 <原名>_fenix8.fit
+
+# 把 *_fenix8.fit 传到 Garmin Connect 即可（设备名正确 + 爬升不再被重算）
+```
+
+**说明**：
+- `extract` 会取真实佳明文件中 `sourceType=local` 的主设备（manufacturer/product/serialNumber/softwareVersion 等）。
+- `apply` 全量重编码：**保留全部原始数据（含第三方私有开发者字段，如高驰 Effort Pace），仅替换 file_id 设备身份、并把 device_info 改为单条佳明设备（删掉原第三方 device_info）**。
+- 校验：输出 `integrity=true`、device_info 仅一条佳明、爬升原值保留。
+- 一台佳明设备只需 `extract` 一次，之后所有第三方文件都能 `apply`。有多台佳明就 `extract --name xxx` 多次，apply 时用 `--device xxx` 选择。
+
+**注意**：若手上没有真实佳明设备，无法凭空编造可信 Unit ID——Connect 会判为「未知设备」。务必用自己/朋友的佳明活动抽取。
+
 ## 脚本说明
 
 | 脚本 | 功能 | 适用平台 |
@@ -82,6 +119,7 @@ python scripts/huawei_batch_convert.py 华为导出.json --output-dir ./华为�
 | `huawei_convert.py` | **华为 JSON → FIT/GPX/TCX（默认 FIT）** | **华为 → 高驰/佳明 ✅** |
 | **`huawei_batch_convert.py`** | **批量华为 JSON → 按类型分目录输出 FIT** | **华为全量数据 → 高驰/佳明 ✅** |
 | `fit_encode.mjs` | FIT 编码器（供 huawei_convert.py 等内部调用） | 依赖 @garmin/fitsdk |
+| **`inject_garmin_device.mjs`** | **注入真实佳明设备信息（extract 抽取 / apply 注入），防 Connect 重算爬升** | **依赖 @garmin/fitsdk；设备数据读 ~/.workbuddy/private/garmin_devices.json** |
 
 ### 注意
 
@@ -184,6 +222,20 @@ python scripts/fit_preview.py input.fit -o my_activity.html
 ### 6. 消息类型完整保留
 - 使用 `@garmin/fitsdk` 的 `Encoder` 重建 FIT 时会丢弃私有消息类型（如 `gps_metadata`, `timestamp_correlation`），但标准消息（file_id, device_info, sport, event, record, lap, session, activity 等）全部保留。
 - 如果接收平台做严格的消息类型校验（如某些 COROS 版本），需要确保 `laps`、`splits`、`event` 等消息都存在。
+
+### 7. 第三方手表文件注入真实佳明设备信息，阻止 Connect 重算爬升（2026-08-01 实测）
+- **现象**：高驰/华为等产出的 FIT 传 Garmin Connect 后爬升被二次加工（显示「未知设备」或用 DEM 重算海拔）。
+- **根因**：Connect 服务端校验 `(product, UnitID)` 是否匹配真实佳明设备；且设备是否带气压高度计决定高程校正开关（带→关校正用设备海拔；不带→用 DEM 替换每个轨迹点）。
+- **解法**：全量重编码，把 `file_id` + `device_info` 改成「真实佳明带气压计设备」。注意是**真实**——`serialNumber(Unit ID)` 必须来自真实佳明活动，编的会被判「未知设备」。
+- **fenix 8 关键值**（示例，来自用户私人区域，勿写死）：manufacturer=`garmin`(1)、product=`4536`、带气压计 → 校正默认关。
+- **实施要点**：
+  - 设备数据存私人区域 `~/.workbuddy/private/garmin_devices.json`，**不进 skill/脚本**（Unit ID 属私人数据，且避免被 GitHub 更新覆盖）。
+  - `extract` 从真实佳明 .fit 抽主设备信息入私人文件；`apply` 读取后注入第三方 FIT。
+  - `apply` 必须**删掉原第三方 device_info**，只留单条佳明 device_info（否则 Connect 仍可能按无气压计设备处理、照常开校正）。
+  - 保留全部原始数据含第三方私有开发者字段（decode 时用 `developerDataIdMesgs`+`fieldDescriptionMesgs` 构 `fieldDescriptions` 传给 `Encoder`）。
+  - 写 devDataId/fieldDescription 时需 `delete o.key`（key 是 decode 加的伪字段）。
+  - 脚本：`scripts/inject_garmin_device.mjs`（依赖 @garmin/fitsdk，已在 skill 目录 `npm install`）。
+- **验证**：`checkIntegrity()=true`、device_info 仅一条佳明、爬升原值保留。
 
 ## 工作流
 
