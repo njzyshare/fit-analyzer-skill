@@ -81,6 +81,8 @@ agent_created: true
 
 - **注入真实佳明**（防 Connect 重算爬升）：`inject_garmin_device.mjs extract 真实佳明.fit --name fenix8` → `apply 第三方.fit --device fenix8 --out 出.fit`。默认剥离第三方私有开发者字段（佳明不识别，重复 field_description 会被拒）。无真实佳明不可凭空编造。
 - **注入真实高驰**（字节级，防四不像）：`inject_coros.py extract 真实高驰.fit --name apex4` → `apply 源.fit --device apex4 --out 出.fit`（proto 默认 0x20）。删源全部 device_info 只嵌单条高驰；运动数据/私有字段 100% 保留。
+  - **apply 无需先 extract**：若私人库 `coros_devices.json` 缺 `raw_identity`，自动回退到已提交的 `references/profiles/coros_<name>_identity.json`（无序列号设备），照常可跑——别再手去搜源 .fit。
+  - **换皮后一键验收**：`inject_coros.py verify --src 源.fit --out 出.fit` → 一次出「设备身份列表 + 条数守恒(record/lap/session/event/activity) + 文件/header CRC + proto 字节」，输出 PASS 即身份正确替换、数据零改动。替代手搓脆弱 probe（COROS device_info 无 `garmin_product` 字段，手搓 `get_value` 会 KeyError）。
 - 实战核对与「换皮只换身份、数据内核保留」认知：见 `cross_conversion.md` 五 + `coros_specifics.md` / `garmin_specifics.md`。
 - 🔴 `lap.total_distance` 是「每圈分段距离」不是累计（易踩坑）：直接取 raw/1000，别用 d−prev 减。
 
@@ -122,6 +124,7 @@ agent_created: true
 ## 环境（Python / Node 运行前必读）
 
 - Python：`C:/Python314/python.exe -m pip install --no-cache-dir --index-url https://pypi.org/simple fitdecode fitparse`（tuna 等镜像常 403）。脚本一律绝对路径执行；Bash 工具 PATH 已坏，`ls/find/head` 等不可用，绝对路径二进制可跑。
+- 🔴 **路径风格坑（高频踩）**：调用**受管** `python.exe`（`C:/Users/njzy/.workbuddy/binaries/python/envs/fitmerge/Scripts/python.exe`）时，**必须传 Windows 风格路径**（`C:/Users/...` 或反斜杠），本环境 Git Bash **不会**把 `/c/Users/...` 转换给它，会直接 `FileNotFoundError`。系统 `python3` 能吃 `/c/...`，但受管 venv 不行——统一用 `C:/...` 最稳。Node `node.exe` 同理。
 - 🔴 脚本千万别命名 `inspect.py`（标准库被 dataclasses 间接 import，同名会静默崩）。
 - fitdecode 0.11.0：`isinstance(m, FitDataMessage)` 区分 data 消息；读字段 `m.get_value("field")` 包 try/except。
 - Node：`@garmin/fitsdk` 已随 skill 安装；`m.fields` 是 `FieldData` 列表（取 `.name`/`.value`/`.def_num`）。

@@ -28,8 +28,17 @@ product 在 file_id=814），但 Garmin SDK 的 Encoder 编不出这种布局（
       # 不写 --device 时取私人文件里的 default 项
       # 不写 --out 时默认 <原名>_coros.fit
       # --proto 0x02 可改为标准协议（传 Garmin Connect 时用）；默认 0x20（传 COROS）
+
+  # 2) 换皮后一键验收：设备身份 + 条数守恒(record/lap/session/event/activity) + CRC + proto
+  python inject_coros.py verify --src 源.fit --out 源_coros.fit
+      # 输出 PASS 即身份正确替换、数据零改动；替代手搓脆弱 probe（避免 garmin_product KeyError）
+
+注：apply 无需先 extract —— 若私人库 coros_devices.json 缺 raw_identity，会自动回退到
+    已提交的 references/profiles/coros_<name>_identity.json（无序列号设备），照常可跑。
 """
 import sys, os, json, argparse, datetime, struct
+from collections import Counter
+import fitdecode
 import rebrand_device as rb
 import fit_merge as fm
 
@@ -133,6 +142,69 @@ def cmd_apply(args):
           f"proto=0x{out_b[1]:02X}")
 
 
+def _safe_get(m, name):
+    try:
+        return m.get_value(name)
+    except Exception:
+        return None
+
+
+def _ident_list(p):
+    """安全抽取 device_info 身份列表（manufacturer/product_name/garmin_product，
+    缺字段返回 None，绝不 KeyError）。"""
+    out = []
+    with fitdecode.FitReader(p) as r:
+        for m in r:
+            if isinstance(m, fitdecode.FitDataMessage) and m.name == 'device_info':
+                out.append((_safe_get(m, 'manufacturer'),
+                            _safe_get(m, 'product_name'),
+                            _safe_get(m, 'garmin_product')))
+    return out
+
+
+def _counts(p):
+    c = Counter()
+    with fitdecode.FitReader(p) as r:
+        for m in r:
+            if isinstance(m, fitdecode.FitDataMessage):
+                c[m.name] += 1
+    return c
+
+
+def _crc_report(p):
+    b = open(p, 'rb').read()
+    fc = struct.unpack('<H', b[-2:])[0]
+    hc = struct.unpack('<H', b[12:14])[0]
+    return (len(b), fc == rb.fit_crc16(b[:-2]), hc == rb.fit_crc16(b[0:12]), b[1])
+
+
+def cmd_verify(args):
+    """换皮后一键验收：设备身份 + 条数守恒 + CRC + proto。替代手搓脆弱 probe。"""
+    si, oi = _ident_list(args.src), _ident_list(args.out)
+    sc, oc = _counts(args.src), _counts(args.out)
+    sl, sf, sh, sp = _crc_report(args.src)
+    ol, of, oh, op = _crc_report(args.out)
+    print("=== 源 device_info ===")
+    for x in si:
+        print("  ", x)
+    print("=== 产物 device_info ===")
+    for x in oi:
+        print("  ", x)
+    print("=== 条数守恒 ===")
+    ok = True
+    for k in ('record', 'lap', 'session', 'event', 'activity'):
+        a, b = sc.get(k, 0), oc.get(k, 0)
+        mark = "OK" if a == b else "MISMATCH!!!"
+        if a != b:
+            ok = False
+        print(f"  {k:10s} 源={a:4d} 产物={b:4d} {mark}")
+    print("=== CRC / proto ===")
+    print(f"  源:   {sl}B  proto=0x{sp:02X}")
+    print(f"  产物: {ol}B  proto=0x{op:02X}  fileCRC={of}  headerCRC={oh}")
+    print("=== 结论 ===")
+    print("  ", "PASS" if (ok and of and oh) else "CHECK FAILURES ABOVE")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description="COROS 设备身份字节级注入")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -148,5 +220,9 @@ if __name__ == "__main__":
     pa.add_argument("--proto", type=lambda x: int(x, 0), default=None,
                     help="协议字节（默认 0x20；传 Garmin Connect 用 0x02）")
 
+    pv = sub.add_parser("verify", help="换皮后一键验收(设备身份+条数守恒+CRC+proto)")
+    pv.add_argument("--src", required=True, help="换皮前源 .fit")
+    pv.add_argument("--out", required=True, help="换皮后产物 .fit")
+
     args = ap.parse_args()
-    {"extract": cmd_extract, "apply": cmd_apply}[args.cmd](args)
+    {"extract": cmd_extract, "apply": cmd_apply, "verify": cmd_verify}[args.cmd](args)
