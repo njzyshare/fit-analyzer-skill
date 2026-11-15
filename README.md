@@ -6,8 +6,9 @@
 
 | 能力 | 命令 |
 |---|---|
-| 佳明 → 高驰（规范重建）| `fit_convert_by_template.py in.fit out.fit --to coros_apex4` |
-| 高驰 → 佳明（规范重建）| `fit_convert_by_template.py in.fit out.fit --to garmin_watch` |
+| 佳明 → 高驰（规范重建，回传 COROS 用这个）| `fit_convert_by_template.py in.fit out.fit --to coros_apex4` |
+| 高驰 → 佳明（规范布局比对件，⚠️ **不可直接传 Connect**）| `fit_convert_by_template.py in.fit out.fit --to garmin_watch` |
+| **高驰/任意 → 佳明（传 Garmin Connect，✅ 推荐）**| `inject_garmin_device.mjs apply in.fit --device fenix8 --out out.fit` |
 | 华为 → FIT / GPX / TCX | `huawei_convert.py 导出.json [--format gpx\|tcx\|all]` |
 | 华为 → 批量按类型输出 | `huawei_batch_convert.py 导出.json -o ./out` |
 | 任意 → TCX（兜底）| `fit_to_tcx.py in.fit -o out.tcx` |
@@ -42,8 +43,11 @@ python scripts/fit_convert_by_template.py 佳明.fit 高驰.fit --to coros_apex4
 python scripts/fit_conformance_check.py 高驰.fit --temp coros_apex4 --src 佳明.fit
 python scripts/fit_diff_vs_template.py  高驰.fit --temp coros_apex4 --src 佳明.fit
 
-# 高驰 → 佳明（同一套流程，换规范名）
+# 高驰 → 佳明（规范布局比对件；⚠️ 不要拿去传 Garmin Connect，见下节）
 python scripts/fit_convert_by_template.py 高驰.fit 佳明.fit --to garmin_watch
+
+# 高驰 → 佳明（传 Garmin Connect 的正确路线，单条真实设备身份）
+node scripts/inject_garmin_device.mjs apply 高驰.fit --device fenix8 --out 高驰_fenix8.fit
 
 # 华为 → FIT
 python scripts/huawei_convert.py 导出.json
@@ -53,6 +57,42 @@ node scripts/merge_preserve.mjs
 python scripts/fit_preview.py 活动.fit
 node scripts/shift_time_sdk.mjs in.fit out.fit -12
 ```
+
+## ⚠️ 传 Garmin Connect：别用规范重建
+
+两条路线都叫「高驰 → 佳明」，用途完全不同：
+
+| | `fit_convert_by_template.py --to garmin_watch` | `inject_garmin_device.mjs apply --device fenix8` |
+|---|---|---|
+| 目标 | 与目标规范**布局逐项一致**（门禁 / 全维度比对 / 研究）| 让 Connect **认设备**、不重算爬升 |
+| `protocol_version` | 0x10 | **0x02** |
+| `device_info` | 21 条（含传感器条目，字段多为哨兵）| **1 条**，`sourceType=local` |
+| `file_id` | 真实 Unit ID（v4.8.1 起自动带）| 真实 Unit ID |
+| 门禁 / QA / SDK | 全绿 | 全绿 |
+| Connect 实测 | ❌ 未知设备 + DEM 重算爬升 | ✅ 设备显示 fenix8、爬升保留 |
+
+**实证（2026-11-15，COROS PACE 4 Pro 21.48 km 活动）**：文件
+`session.total_ascent=81m`，record 海拔逐点无阈值上升 83.0 m；规范重建产物上传后
+Connect 显示 **287 m 累计爬升** —— 不是文件算出来的，是 Connect 拿 DEM 地形数据
+替换了轨迹点海拔，因为它把该文件判成「不带气压高度计的设备」。
+给 21 条 `device_info` 补齐 `source_type=local` / `device_index` /
+`software_version`、再从真机抠 `file_creator` 插入，**仍然不行**；
+回退到注入路线后立即正常。所以问题不在缺标记，在整条路线。
+
+🔴 **传 Connect 前的三条交付判据（逐条验，缺一不可）**：
+
+1. `protocol_version = 0x02`（不是 0x10 / 0x20）
+2. `device_info` **恰好 1 条**，`sourceType=local`、`deviceIndex=creator`
+3. `file_id.serialNumber` 为**真实 Unit ID**（编造的会被服务端 `(product, UnitID)` 校验判「未知设备」）
+
+`file_creator`(g=49) **不是必需** —— 历史成功产物没有它，Connect 照样识别。
+门禁 PASS / QA 全绿 / SDK 0 error **都不能**替代这三条：它们只校验文件内部自洽，
+不校验服务端认不认设备。
+
+另：Connect 的「装备」(Gear) 指跑鞋等手动关联项，FIT 里没有这个字段；
+设备型号在「设备」栏。重传前必须先删旧活动破缓存。
+细节见 [`references/garmin_specifics.md`](references/garmin_specifics.md) 三节、
+[`references/cross_conversion.md`](references/cross_conversion.md) 四 / 五节。
 
 ## 换皮：只改身份 vs 规范重建
 

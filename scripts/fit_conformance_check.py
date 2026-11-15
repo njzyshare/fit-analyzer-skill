@@ -825,6 +825,36 @@ class Checker:
             else:
                 r.ok(f'g={g}({fname}) 模板有值的身份/单条字段均已填充'
                      f'（{len(fields)} 项）')
+        # ── 规范 identity.productName 值级核对（不依赖上面的单条消息快照）────
+        # 教训（2026-11-11）：profiles/*.json 规范里没有 single_message_values，
+        # 上面整段值级核对会被跳过；转换器把 fileId.f8 留空时门禁照样全 PASS。
+        # 只要产物采用了目标设备身份（manufacturer 与规范一致），f8 就必须等于
+        # 规范里的产品名；--keep-identity 保留源身份时跳过并标注 INFO。
+        idn = t.get('identity') or {}
+        want_name = idn.get('productName') or idn.get('product_name')
+        want_manuf = idn.get('manufacturer')
+        fid = self.f.one(0)
+        if want_name and fid is not None:
+            got_manuf = self.f.value(fid, 1, self.prof)
+            same_manuf = True
+            if want_manuf is not None and got_manuf is not None:
+                try:
+                    same_manuf = int(got_manuf) == int(want_manuf)
+                except (TypeError, ValueError):
+                    same_manuf = str(got_manuf).lower() == str(want_manuf).lower()
+            if not same_manuf:
+                r.info('fileId 采用源设备身份（--keep-identity），跳过 productName 值级核对')
+            else:
+                v = self.f.value(fid, 8, self.prof)
+                if isinstance(v, (bytes, bytearray)):
+                    v = v.decode('utf-8', 'replace')
+                got = (v or '').rstrip('\x00').strip() if isinstance(v, str) else ''
+                want = str(want_name).rstrip('\x00').strip()
+                r.check(got == want,
+                        'fileId.productName 与规范 identity 一致',
+                        f'fileId.f8 = {got!r}，规范要求 {want!r}'
+                        ' —— 布局一致但值留空/写错，平台可能不认设备',
+                        note=f'{want}')
         # 开发者字段
         tdev = t.get('developer_data', [])
         n206 = [m for m in self.f.msgs if m.g == 206]

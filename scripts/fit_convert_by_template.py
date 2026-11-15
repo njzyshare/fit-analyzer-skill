@@ -55,7 +55,18 @@ sys.stdout.reconfigure(encoding='utf-8')
 from fit_lib import (BASE_TYPES, TYPE_IDS, FitFile, FitWriter, Profile,
                      TEMPLATE_DIR, crc16, invalid_bytes)
 
-STORE = os.path.join(os.path.expanduser('~'), '.workbuddy', 'private', 'fit_devices.json')
+# 私有设备库：历史上有三种文件名，按品牌分库才是当前主写法。
+#   garmin_devices.json  ← inject_garmin_device.mjs / extract_devices.py
+#   coros_devices.json   ← inject_coros.py
+#   fit_devices.json     ← 旧版遗留（曾是本文件唯一读取的路径）
+PRIVATE_DIR = os.path.join(os.path.expanduser('~'), '.workbuddy', 'private')
+STORE = os.path.join(PRIVATE_DIR, 'fit_devices.json')  # 兼容旧引用
+IDENTITY_STORES = ('garmin_devices.json', 'coros_devices.json', 'fit_devices.json')
+MANUFACTURER_CODES = {'garmin': 1, 'coros': 294}
+BRAND_HINTS = {
+    'garmin': ('garmin', 'fenix', 'forerunner', 'epix', 'vivo', 'watch'),
+    'coros': ('coros', 'apex', 'pace', 'vertix'),
+}
 
 # ---------------------------------------------------------------------------
 # 语义别名表：同一物理量在不同消息里的官方字段名对应
@@ -312,6 +323,23 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SPEC_DIR = os.path.join(BASE_DIR, 'references', 'profiles')
 
 
+def _identity_get(d, *keys):
+    """读取设备身份字典，兼容两种键名。
+
+    规范 references/profiles/*.json 的 identity 用驼峰（productName /
+    serialNumber）；私有设备库历史上两种写法都出现过——extract_devices.py
+    写 product_name，inject_coros.py 写 productName。只认其中一种会让
+    「布局里有该字段、值却是空/哨兵」，而布局检查完全抓不到这种空洞。
+    """
+    if not isinstance(d, dict):
+        return None
+    for k in keys:
+        v = d.get(k)
+        if v not in (None, '', b''):
+            return v
+    return None
+
+
 def _spec_to_template(spec):
     """把「规范」（profiles/*.json，紧凑格式）展开成转换器内部用的模板形状。
 
@@ -558,23 +586,73 @@ class TemplateConverter:
 
     # -- 设备身份 -----------------------------------------------------------
     def _load_identity(self):
-        """从私有区读取目标设备身份（含序列号）。"""
+        """从私有区读取目标设备身份（含真实 Unit ID）。
+
+        教训（2026-11-15）：旧版只读 fit_devices.json（实际不存在），且按规范名
+        做精确/前缀匹配，结果 `--to garmin_watch` 永远匹配不到私有库里的
+        `fenix8`，身份静默退化成规范里的裸身份：file_id 无 Unit ID、
+        device_info 第一条还继承源的 COROS 产品名。门禁/SDK 全 PASS 也照样漏。
+
+        现在：三个库全读 → 按品牌线索 + 厂商码匹配设备 → default 优先 →
+        把字符串 manufacturer 规范化成官方数值码。
+        """
         if self.keep_identity:
             return None
-        if not os.path.exists(STORE):
+        devices = {}
+        defaults = []
+        for fname in IDENTITY_STORES:
+            p = os.path.join(PRIVATE_DIR, fname)
+            if not os.path.exists(p):
+                continue
+            try:
+                db = json.load(open(p, encoding='utf-8'))
+            except Exception:
+                continue
+            for k, v in (db.get('devices') or {}).items():
+                devices.setdefault(k, v)
+            if db.get('default'):
+                defaults.append(db['default'])
+        if not devices:
             return None
-        try:
-            db = json.load(open(STORE, encoding='utf-8'))['devices']
-        except Exception:
-            return None
-        # 优先精确名，其次模糊匹配
-        if self.tname in db:
-            return db[self.tname]
-        for k, v in db.items():
-            if self.tname.startswith(k) or k.startswith(self.tname) \
-                    or k.replace('garmin_', '').replace('coros_', '') in self.tname:
-                return v
-        return None
+
+        tname = (self.tname or '').lower()
+        brand = next((b for b in BRAND_HINTS if b in tname), None)
+        hint_words = BRAND_HINTS.get(brand, ())
+
+        # 1) 规范名与设备 key 完全一致
+        ident = devices.get(self.tname)
+        if ident is None:
+            cands = []
+            for k, v in devices.items():
+                kl = k.lower()
+                val_mfr = str(_identity_get(v, 'manufacturer') or '').lower()
+                key_match = any(h in kl for h in hint_words)
+                mfr_match = bool(brand) and (
+                    brand in val_mfr or val_mfr == str(MANUFACTURER_CODES.get(brand)))
+                if key_match or mfr_match:
+                    cands.append((k, v))
+            # 2) 旧版宽松匹配兜底（coros_apex4 ↔ apex4 之类）
+            if not cands:
+                for k, v in devices.items():
+                    kl = k.lower()
+                    if (tname.startswith(kl) or kl.startswith(tname)
+                            or kl.replace('garmin_', '').replace('coros_', '') in tname):
+                        cands.append((k, v))
+            if not cands:
+                return None
+            # 3) 同品牌多设备时优先库里声明的 default
+            for dk in defaults:
+                ident = next((v for k, v in cands if k == dk), None)
+                if ident is not None:
+                    break
+            if ident is None:
+                ident = cands[0][1]
+
+        ident = dict(ident)
+        mfr = _identity_get(ident, 'manufacturer')
+        if isinstance(mfr, str):
+            ident['manufacturer'] = MANUFACTURER_CODES.get(mfr.lower(), mfr)
+        return ident
 
     def _make_fileid_src(self, pool):
         """构造 fileId 的语义值（身份 + 从源继承的 timeCreated）。"""
@@ -588,8 +666,9 @@ class TemplateConverter:
             vals['manufacturer'] = {'value': self.identity.get('manufacturer'), 'num': 1}
             if self.identity.get('product') is not None:
                 vals['product'] = {'value': self.identity['product'], 'num': 2}
-            if self.identity.get('serial_number') is not None:
-                vals['serialNumber'] = {'value': self.identity['serial_number'], 'num': 3}
+            serial = _identity_get(self.identity, 'serialNumber', 'serial_number')
+            if serial is not None:
+                vals['serialNumber'] = {'value': serial, 'num': 3}
         elif not self.keep_identity:
             if idn.get('manufacturer') is not None:
                 vals['manufacturer'] = {'value': idn['manufacturer'], 'num': 1}
@@ -602,14 +681,15 @@ class TemplateConverter:
                     vals[k] = src_fid[k]
         # 产品名：高驰真机在 fileId(f8) 与 deviceInfo(f27) **两处**都写。
         # 漏掉 f8 会造成「布局里有该字段却填哨兵」，与真机文件不一致（曾漏）。
-        pname = None
-        if self.identity and self.identity.get('product_name'):
-            pname = self.identity['product_name']
-        elif idn.get('product_name'):
-            pname = idn['product_name']
-        elif self.keep_identity:
+        # ⚠️ 规范 identity 用 productName（驼峰），私有设备库可能是
+        #    product_name（下划线）；两种都要认，否则 f8 被写成 18 字节全 0
+        #    （2026-11-11 实测：门禁布局全 PASS 却漏掉这个空洞）。
+        if self.keep_identity:
             pname = src_fid.get('productName', {}).get('value') \
                 if isinstance(src_fid.get('productName'), dict) else None
+        else:
+            pname = (_identity_get(self.identity, 'productName', 'product_name')
+                     or _identity_get(idn, 'productName', 'product_name'))
         if pname:
             vals['productName'] = {'value': pname, 'num': 8}
         # type = activity(4)
@@ -630,14 +710,14 @@ class TemplateConverter:
         serial = None
         name = None
         if self.identity:
-            manuf = self.identity.get('manufacturer')
-            product = self.identity.get('product')
-            serial = self.identity.get('serial_number')
-            name = self.identity.get('product_name')
+            manuf = _identity_get(self.identity, 'manufacturer')
+            product = _identity_get(self.identity, 'product')
+            serial = _identity_get(self.identity, 'serialNumber', 'serial_number')
+            name = _identity_get(self.identity, 'productName', 'product_name')
         elif not self.keep_identity:
-            manuf = idn.get('manufacturer')
-            product = idn.get('product')
-            name = idn.get('productName')
+            manuf = _identity_get(idn, 'manufacturer')
+            product = _identity_get(idn, 'product')
+            name = _identity_get(idn, 'productName', 'product_name')
         else:
             manuf = base.get('manufacturer', {}).get('value')
             product = base.get('product', {}).get('value')
@@ -928,6 +1008,15 @@ def main():
     print(f'✅ 已生成 {a.dst}（{len(blob)} bytes）')
     print(f'   字段映射: 同名 {cv.stats["mapped"]} / 别名 {cv.stats["alias"]} / '
           f'源缺留哨兵 {cv.stats["missing"]}')
+    if 'garmin' in a.to.lower() and not a.keep_identity:
+        print()
+        print('⚠️  用途提醒：本产物是「规范布局一致」的比对/研究件，不是 Garmin Connect 上传件。')
+        print('    实测（2026-11-15）：规范重建产物 21 条 device_info + proto=0x10，')
+        print('    Connect 判未知设备并用 DEM 重算爬升（文件 81m → 显示 287m）。')
+        print('    传 Connect 请改用：')
+        print('      node scripts/inject_garmin_device.mjs apply <源.fit> --device fenix8 --out <出.fit>')
+        print('    三条判据：proto=0x02 / device_info 恰好 1 条且 sourceType=local /')
+        print('              file_id 的 serialNumber 为真实 Unit ID。')
     if cv.stats['missing']:
         print(f'   ℹ️ 源缺的字段一律留官方无效哨兵（绝不编造）')
 

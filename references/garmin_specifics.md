@@ -50,6 +50,34 @@
 **设备是否带气压高度计决定高程校正开关**：带气压计→校正默认关、用设备记录海拔；不带→用 DEM 地形数据替换每个轨迹点（二次加工爬升）。故注入「真实佳明带气压计设备」即可彻底解决。
 🔴 **序列号 / 私人设备数据一律存 `~/.workbuddy/private/garmin_devices.json`，绝不写死进 skill / 脚本 / 共享文件**（见 `coros_specifics.md` 五，高驰同样无 serial）。
 
+### 三之二、上传件三条判据（2026-11-15 实测定案）
+
+上表「21 条 device_info」描述的是**真机佳明原文件**；`inject_garmin_device.mjs`
+产出的上传件**只有 1 条**，Connect 照样识别。**不要为了凑 21 条而保留/伪造传感器条目。**
+
+| # | 判据 | 反例后果 |
+|---|---|---|
+| 1 | `protocol_version = 0x02` | `0x10`（规范重建产物）→ 判未知设备 |
+| 2 | `device_info` 恰好 1 条、`sourceType=local`、`deviceIndex=creator` | 21 条带哨兵 → 判未知设备 |
+| 3 | `file_id.serialNumber` 为**真实 Unit ID** | 编造 / 留空 → 服务端 `(product, UnitID)` 校验失败 |
+
+`file_creator`(g=49) **不是必需**：历史成功上传件没有它，设备正确显示、爬升保留。
+`software_version` 写真机值（哨兵 `0xFFFF` 无效）。
+
+**实证（COROS PACE 4 Pro → Garmin Connect，21.48 km）**：
+文件 `session.total_ascent=81m`，record 海拔 120~152m、逐点无阈值上升 83.0m；
+规范重建产物（21 条 device_info + proto=0x10）上传后显示 **287m**。
+287m 不是文件算出来的，是 Connect 用 DEM 地形数据替换了轨迹点海拔。
+再给 21 条补 `source_type=local` / `device_index` / `software_version`、插 `file_creator`，
+**仍不行**；改用注入路线（单条 + 0x02）后恢复正常。
+→ **「未知设备」与「爬升被重算」是同一根因**，别当两个问题分别修。
+
+**全绿 ≠ 可用**：上述失败产物门禁 PASS 115/0、diff 一致 22/0、QA 11 PASS/0 FAIL、
+官方 SDK 0 error + `checkIntegrity=true`，仍被 Connect 拒绝识别。
+这些检查只覆盖「文件内部自洽」，不覆盖「服务端认不认设备」。
+排查顺序：先算海拔序列确认是不是 DEM → 再验上面三条判据 → 最后才怀疑网页版
+「海拔校正」开关。详见 `README.md` ⚠️ 节与 `cross_conversion.md` 五之一。
+
 ## 四、file_id
 
 | 字段 | 值 |

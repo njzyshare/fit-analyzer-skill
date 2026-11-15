@@ -124,4 +124,6 @@
 | productName | COROS APEX 4 42mm |
 | device_info_count | 1 |
 
-> ⚠️ **serialNumber / Unit ID 不在本文件、也不在任何模板里**，一律存私有区 `~/.workbuddy/private/fit_devices.json`。
+> ⚠️ **serialNumber / Unit ID 不在本文件、也不在任何模板里**，一律存私有区
+> `~/.workbuddy/private/coros_devices.json`（高驰）/ `garmin_devices.json`（佳明）；
+> 旧版 `fit_devices.json` 仅作兼容。规范转换器 v4.8.1 起三个库全读、按品牌匹配。

@@ -1,7 +1,13 @@
 # 高驰 ↔ 佳明 互转对照
 
 > **性质**：两平台差异的处理清单。「相同点」合并在此，平台特有细节分别在 `coros_specifics.md` / `garmin_specifics.md`。
-> **执行**：一律走模板转换器 `scripts/fit_convert_by_template.py --to <规范>`，它会自动完成并跑规范门禁。手写对照改 = 回到「出问题再补」的老路。
+> **执行（按用途分流）**：
+> - 布局一致性研究 / 回传 COROS → 模板转换器 `fit_convert_by_template.py --to <规范>`（自动跑规范门禁）。
+> - 🔴 **传 Garmin Connect → `inject_garmin_device.mjs apply <源> --device fenix8 --out <出>`**（第五节）。
+>   模板转换器的 `--to garmin_watch` 产物是 21 条 `device_info` + proto=0x10，
+>   Connect 实测判未知设备并 DEM 重算爬升，**不能拿来上传**。
+>
+> 手写对照改 = 回到「出问题再补」的老路。
 > **配套**：通用规范 `fit_format_spec.md`；分支 `coros_specifics.md` / `garmin_specifics.md`。
 
 ---
@@ -53,7 +59,18 @@
 | 13 | 温度 | 源无→留哨兵 |
 | 14 | CRC | 重算头部 + 文件 CRC |
 
-## 四、高驰 → 佳明 处理清单
+## 四、高驰 → 佳明 处理清单（规范布局件）
+
+> 🔴 **本节只保证「布局与佳明规范逐项一致」，不保证产物能上传 Garmin Connect。**
+> 2026-11-15 实测：按本节清单重建的产物门禁 115/0、diff 22/0、QA 11/0、
+> 官方 SDK 0 error + integrity=true，上传 Connect 后仍判「未知设备」，
+> 且 `session.total_ascent=81m` 被 DEM 地形数据重算成 **287m**
+> （record 海拔逐点无阈值上升只有 83.0m，287m 不来自文件）。
+> 补 21 条 `device_info` 的 `source_type=local` / `device_index` /
+> `software_version`，再从真机抠 `file_creator` 插入，**仍然不行** ——
+> 根因是整条路线（21 条 device_info + proto=0x10），不是缺标记。
+> **传 Connect 请走第五节注入路线**，并验三条判据：`proto=0x02` /
+> `device_info` 恰好 1 条且 `sourceType=local` / `file_id.serialNumber` 为真实 Unit ID。
 
 | # | 处理项 | 动作 |
 |---|---|---|
@@ -81,3 +98,30 @@
 - **两平台互逆换皮**：`rebrand_device.py <src> <ref> <out>`（复制 ref 的 file_id+device_info 字节，src 的 local 号+时间戳，运动数据 100% 保留）。
 
 > 换皮只换设备身份，核心运动数据不变；平台专属指标（如高驰 Effort Pace）在换皮到对方时按对方规则剥离/保留。
+
+### 五之一、任意 → 佳明（传 Garmin Connect）实证与判据
+
+`inject_garmin_device.mjs` 用官方 SDK 全量重编码，与第四节「规范重建」是两条不同路线，
+不要把第四节的布局要求套到这里：
+
+| 项 | 规范重建（第四节）| **注入路线（传 Connect 用）** |
+|---|---|---|
+| `protocol_version` | 16 / 0x10 | **2 / 0x02**（SKILL.md 铁律 4）|
+| `device_info` | 21 条、字段多为哨兵 | **恰好 1 条**，`sourceType=local`、`deviceIndex=creator` |
+| `software_version` | `0xFFFF` 无效 | 真机值（本机 22.41）|
+| `file_creator`(g=49) | 0 条（补了也没用）| 0 条 —— **非必需** |
+| `file_id.serialNumber` | v4.8.1 起自动带真实 Unit ID | 真实 Unit ID（Connect 服务端校验 `(product, UnitID)`）|
+| 私有 dev 段 | 剥离 | 剥离（日志 `制造商=undefined` 是 SDK 字段名映射误报，不影响）|
+| 运动数据 | 逐点守恒 | 逐点守恒（实测 7173 timestamp / distance、7172 HR、6748 GPS、7158 海拔、7169 速度全 0 差异）|
+| Connect 结果 | ❌ 未知设备 + 287m | ✅ 显示 fenix8、`total_ascent=81m` 保留 |
+
+**三条交付判据（缺一不可）**：`proto=0x02` / `device_info` 恰好 1 条且 `sourceType=local` /
+`file_id.serialNumber` 为真实 Unit ID。门禁 / QA / SDK 全绿**不能**替代这三条。
+
+**排查口径**：
+- 「累计爬升被改」先算文件内 record 海拔逐点无阈值上升。若与
+  `session.total_ascent` 一致而平台显示值远大于它 → DEM 重算，不是文件数据错。
+- DEM 重算与「未知设备」是**同一个根因**（没被认成带气压高度计的真实设备），别分开查。
+- Connect「装备」(Gear) 是跑鞋等手动关联项，FIT 无此字段；设备型号在「设备」栏。
+- 重传前必须删旧活动破缓存；若删干净重传仍异常，才考虑 Connect 网页版
+  「海拔校正」开关（平台侧，FIT 改不动）。

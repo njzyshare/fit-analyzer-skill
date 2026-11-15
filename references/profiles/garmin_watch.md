@@ -252,4 +252,9 @@
 | product | 4536 |
 | device_info_count | 21 |
 
-> ⚠️ **serialNumber / Unit ID 不在本文件、也不在任何模板里**，一律存私有区 `~/.workbuddy/private/fit_devices.json`。
+> ⚠️ **serialNumber / Unit ID 不在本文件、也不在任何模板里**，一律存私有区
+> `~/.workbuddy/private/garmin_devices.json`（佳明）/ `coros_devices.json`（高驰）；
+> 旧版 `fit_devices.json` 仅作兼容。规范转换器 v4.8.1 起三个库全读、按品牌匹配。
+> 🔴 本规范描述的是**真机布局比对件**；产物 `proto=0x10`、21 条 `device_info`，
+> **不可直接上传 Garmin Connect**（会判未知设备并 DEM 重算爬升），
+> 上传件走 `inject_garmin_device.mjs apply`，三条判据见 `garmin_specifics.md` 三之二。
