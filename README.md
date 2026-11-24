@@ -25,6 +25,7 @@
 | 官方 SDK 重建 | `fit_rebuild_sdk.py` |
 | 新设备学规范 | `fit_learn_template.py 真机.fit --name X` → `fit_distill_spec.py X` |
 | 高驰 MCP 取数 | 见 [`references/coros_mcp.md`](references/coros_mcp.md) |
+| 佳明 MCP 取数 / 导 FIT | 见 [`references/garmin_mcp.md`](references/garmin_mcp.md) |
 
 跨品牌互转两个方向都过 11 节规范门禁 + 全维度比对，数据保真（速度/海拔逐点差 0.00000）。
 **换新型号只需换 `--to` 后的规范名，不改代码。**
@@ -120,7 +121,8 @@ Connect 显示 **287 m 累计爬升** —— 不是文件算出来的，是 Conn
 | [`references/coros_specifics.md`](references/coros_specifics.md) | 高驰分支：白名单消息、渐进布局、Effort Pace、最快1KM、平台限制 |
 | [`references/garmin_specifics.md`](references/garmin_specifics.md) | 佳明分支：私有消息、device_info 21 条、Connect 校验 |
 | [`references/cross_conversion.md`](references/cross_conversion.md) | 双向互转对照与差异处理 |
-| [`references/coros_mcp.md`](references/coros_mcp.md) | 高驰 MCP 部署与取数口径 |
+| [`references/coros_mcp.md`](references/coros_mcp.md) | 高驰 MCP 部署、取数口径、最快1KM 分段判据 |
+| [`references/garmin_mcp.md`](references/garmin_mcp.md) | 佳明中国区 MCP 可迁移部署、版本坑、FIT 导出 |
 | [`references/华为转换.md`](references/华为转换.md) | 华为 JSON → FIT/GPX/TCX |
 | `合并与重建.md` `设备注入与身份.md` `协议与时间戳.md` `规范驱动互转.md` | 细分铁律 |
 

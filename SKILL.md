@@ -20,7 +20,8 @@ agent_created: true
 | `references/cross_conversion.md` | **互转对照**：相同点合并 + 差异处理清单 + 换皮快捷路线 |
 | `references/华为转换.md` | 华为 JSON→FIT/GPX/TCX 铁律 |
 | `references/合并与重建.md` `设备注入与身份.md` `协议与时间戳.md` `规范驱动互转.md` | 细分铁律 |
-| `references/coros_mcp.md` | **高驰 MCP**：部署配置、能力边界、取数口径（运动/睡眠/恢复/训练负荷）|
+| `references/coros_mcp.md` | **高驰 MCP**：部署配置、能力边界、取数口径、`lapGroups` 判最快1KM |
+| `references/garmin_mcp.md` | **佳明 MCP**：中国区社区 MCP 可迁移部署、garminconnect 版本坑、FIT 导出 |
 
 ## 路线总览
 
@@ -159,7 +160,7 @@ agent_created: true
 ## 环境（Python / Node 运行前必读）
 
 - Python：`C:/Python314/python.exe -m pip install --no-cache-dir --index-url https://pypi.org/simple fitdecode fitparse`（tuna 等镜像常 403）。脚本一律绝对路径执行；Bash 工具 PATH 已坏，`ls/find/head` 等不可用，绝对路径二进制可跑。
-- 🔴 **路径风格坑（高频踩）**：调用**受管** `python.exe`（`C:/Users/njzy/.workbuddy/binaries/python/envs/fitmerge/Scripts/python.exe`）时，**必须传 Windows 风格路径**（`C:/Users/...` 或反斜杠），本环境 Git Bash **不会**把 `/c/Users/...` 转换给它，会直接 `FileNotFoundError`。系统 `python3` 能吃 `/c/...`，但受管 venv 不行——统一用 `C:/...` 最稳。Node `node.exe` 同理。
+- 🔴 **路径风格坑（高频踩）**：调用**受管** `python.exe`（`~/.workbuddy/binaries/python/envs/<env名>/Scripts/python.exe`，Windows 即 `%USERPROFILE%/.workbuddy/...`）时，**必须传 Windows 风格路径**（`C:/Users/<用户名>/...` 或反斜杠），本环境 Git Bash **不会**把 `/c/Users/...` 转换给它，会直接 `FileNotFoundError`。系统 `python3` 能吃 `/c/...`，但受管 venv 不行——统一用 `C:/...` 最稳。Node `node.exe` 同理。
 - 🔴 脚本千万别命名 `inspect.py`（标准库被 dataclasses 间接 import，同名会静默崩）。
 - fitdecode 0.11.0：`isinstance(m, FitDataMessage)` 区分 data 消息；读字段 `m.get_value("field")` 包 try/except。
 - Node：`@garmin/fitsdk` 已随 skill 安装；`m.fields` 是 `FieldData` 列表（取 `.name`/`.value`/`.def_num`）。
