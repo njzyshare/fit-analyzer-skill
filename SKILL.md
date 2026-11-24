@@ -35,7 +35,7 @@ agent_created: true
 |------|----------|------|
 | 合并分段（高驰，保真保留源生 lap）| `merge_preserve.mjs`（PROTO20=1）| ① |
 | 合并分段（佳明 Connect）| `merge_fixed.mjs` | ① |
-| 合并分段（字节级拼接）| `fit_merge.py` | ① 高驰✅ 佳明❌ |
+| 合并分段（字节级拼接）| `fit_merge.py` | ① 高驰✅；传佳明须再过 `inject_garmin_device.mjs apply`（剥私有段+注入设备），产物不可直传 Connect |
 | **→ Garmin Connect 上传（唯一推荐）**：注入真实佳明设备、防重算爬升 | `inject_garmin_device.mjs apply --device fenix8` | ① |
 | 注入真实高驰设备（字节级防四不像）| `inject_coros.py apply` | ① |
 | 设备身份互逆换皮（Garmin↔COROS）| `rebrand_device.py <src> <ref> <out>` | ① |
@@ -123,6 +123,7 @@ agent_created: true
 
 - **A 高驰分段→回传 COROS**：`merge_preserve.mjs`(PROTO20=1) → 若被翻 0x02 用 `fix_proto.py` 翻回 0x20 → `fit_qa.py` → 回传 COROS。
 - **B 高驰分段→传 Garmin**：`merge_preserve.mjs`/`fit_merge.py` → `inject_garmin_device.mjs apply`(proto 0x02) → `fit_qa.py` → 传 Connect。
+  🔴 合并产物**必须再过注入**：字节级合并保留的私有消息（gpsMetadata/split/unknown_*）会被 Connect 拒收，SDK 全量重编码时剥离；注入同时写入单条真实设备身份，避免 DEM 重算爬升。历史上 `fit_merge.py` 被标「佳明❌」仅指**产物直传**，不是脚本不可用。
 - **C 华为 JSON→高驰/佳明**：`huawei_convert.py`（默认 FIT）。
 - **D 佳明分段→每km重切圈→改高驰→回传 COROS**：`merge_fixed.mjs` → `inject_coros.py apply --device apex4`(proto 0x20) → `fit_qa.py`。
 - **E 跨品牌互转（规范驱动）**：`fit_convert_by_template.py --to <规范>` → 门禁 → 全维度比对 → SDK 验证 → 交付。
